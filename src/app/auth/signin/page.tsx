@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Button } from "~/components/ui/button";
 import {
 	Card,
@@ -17,6 +17,14 @@ import { Label } from "~/components/ui/label";
 import { Separator } from "~/components/ui/separator";
 
 export default function SignInPage() {
+	return (
+		<Suspense>
+			<SignInForm />
+		</Suspense>
+	);
+}
+
+function SignInForm() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
