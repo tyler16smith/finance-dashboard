@@ -22,14 +22,21 @@ import {
 	SelectValue,
 } from "~/components/ui/select";
 import {
+	buildDefaultClassifications,
+	type CategoryClassification,
 	INTERNAL_FIELDS,
-	type InternalFieldKey,
 	suggestMapping,
 } from "~/lib/category-normalize";
 
-type Step = "upload" | "mapping" | "importing" | "done";
+type Step = "upload" | "mapping" | "categorize" | "importing" | "done";
 
-export function OnboardingFlow() {
+type CategoryEntry = { classification: CategoryClassification; count: number };
+
+interface OnboardingFlowProps {
+	hasExistingData?: boolean;
+}
+
+export function OnboardingFlow({ hasExistingData = false }: OnboardingFlowProps) {
 	const router = useRouter();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [step, setStep] = useState<Step>("upload");
@@ -38,6 +45,8 @@ export function OnboardingFlow() {
 	const [headers, setHeaders] = useState<string[]>([]);
 	const [preview, setPreview] = useState<Record<string, string>[]>([]);
 	const [mapping, setMapping] = useState<Record<string, string>>({});
+	const [categoryMap, setCategoryMap] = useState<Record<string, CategoryEntry>>({});
+	const [importMode, setImportMode] = useState<"replace" | "append">("replace");
 	const [importResult, setImportResult] = useState<{
 		imported: number;
 		skipped: number;
@@ -98,7 +107,50 @@ export function OnboardingFlow() {
 		(f) => mapping[f.key],
 	);
 
-	async function handleImport() {
+	function handleContinueFromMapping() {
+		const hasCategoryCol = !!mapping.category;
+		const hasTypeCol = !!mapping.type;
+
+		if (!hasCategoryCol && !hasTypeCol) {
+			toast.warning(
+				"No category or type column mapped — transactions will be classified by amount sign only.",
+			);
+			void handleImport({});
+			return;
+		}
+
+		if (!file) return;
+
+		Papa.parse<Record<string, string>>(file, {
+			header: true,
+			skipEmptyLines: true,
+			complete: (results) => {
+				const valueCounts: Record<string, number> = {};
+				for (const row of results.data) {
+					const catVal = mapping.category
+						? (row[mapping.category] ?? "").trim()
+						: "";
+					const typeVal = mapping.type
+						? (row[mapping.type] ?? "").trim()
+						: "";
+					if (catVal) valueCounts[catVal] = (valueCounts[catVal] ?? 0) + 1;
+					if (typeVal && typeVal !== catVal)
+						valueCounts[typeVal] = (valueCounts[typeVal] ?? 0) + 1;
+				}
+				const entries = Object.entries(valueCounts).map(([value, count]) => ({
+					value,
+					count,
+				}));
+				setCategoryMap(buildDefaultClassifications(entries));
+				setStep("categorize");
+			},
+			error: () => toast.error("Failed to parse CSV."),
+		});
+	}
+
+	async function handleImport(
+		catClassifications: Record<string, "INCOME" | "EXPENSE" | "SKIP">,
+	) {
 		if (!file) return;
 		setStep("importing");
 		setProgress(10);
@@ -106,6 +158,8 @@ export function OnboardingFlow() {
 		const formData = new FormData();
 		formData.append("file", file);
 		formData.append("mapping", JSON.stringify(mapping));
+		formData.append("categoryClassifications", JSON.stringify(catClassifications));
+		formData.append("mode", importMode);
 
 		try {
 			setProgress(40);
@@ -134,6 +188,21 @@ export function OnboardingFlow() {
 		}
 	}
 
+	function handleImportFromCategorize() {
+		const classifications: Record<string, "INCOME" | "EXPENSE" | "SKIP"> = {};
+		for (const [key, entry] of Object.entries(categoryMap)) {
+			classifications[key] = entry.classification;
+		}
+		void handleImport(classifications);
+	}
+
+	const classificationLabels: Record<CategoryClassification, string> = {
+		INCOME: "✅ Income",
+		EXPENSE: "💸 Expense",
+		SKIP: "🚫 Skip",
+	};
+
+	// ─── Upload step ───────────────────────────────────────────────────────────
 	if (step === "upload") {
 		return (
 			<div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -145,7 +214,7 @@ export function OnboardingFlow() {
 							started.
 						</CardDescription>
 					</CardHeader>
-					<CardContent>
+					<CardContent className="space-y-6">
 						<button
 							className={`flex w-full cursor-pointer flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed p-12 transition-colors ${
 								isDragging
@@ -192,12 +261,52 @@ export function OnboardingFlow() {
 							ref={inputRef}
 							type="file"
 						/>
+						{hasExistingData && (
+							<div className="space-y-3 rounded-lg border p-4">
+								<p className="font-medium text-sm">Import mode</p>
+								<div className="space-y-2">
+									<label className="flex cursor-pointer items-start gap-3">
+										<input
+											checked={importMode === "replace"}
+											className="mt-0.5"
+											name="importMode"
+											onChange={() => setImportMode("replace")}
+											type="radio"
+										/>
+										<div>
+											<p className="font-medium text-sm">Replace existing data</p>
+											<p className="text-muted-foreground text-xs">
+												Deletes all current income/expense transactions and
+												imports this file fresh.
+											</p>
+										</div>
+									</label>
+									<label className="flex cursor-pointer items-start gap-3">
+										<input
+											checked={importMode === "append"}
+											className="mt-0.5"
+											name="importMode"
+											onChange={() => setImportMode("append")}
+											type="radio"
+										/>
+										<div>
+											<p className="font-medium text-sm">Add to existing data</p>
+											<p className="text-muted-foreground text-xs">
+												Appends without removing anything. Use this if your CSV
+												covers a new date range only.
+											</p>
+										</div>
+									</label>
+								</div>
+							</div>
+						)}
 					</CardContent>
 				</Card>
 			</div>
 		);
 	}
 
+	// ─── Mapping step ──────────────────────────────────────────────────────────
 	if (step === "mapping") {
 		return (
 			<div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -300,7 +409,103 @@ export function OnboardingFlow() {
 							<Button
 								className="flex-1"
 								disabled={!requiredMapped}
-								onClick={handleImport}
+								onClick={handleContinueFromMapping}
+								type="button"
+							>
+								Continue
+							</Button>
+						</div>
+					</CardContent>
+				</Card>
+			</div>
+		);
+	}
+
+	// ─── Categorize step ───────────────────────────────────────────────────────
+	if (step === "categorize") {
+		return (
+			<div className="flex min-h-screen items-center justify-center bg-background p-4">
+				<Card className="w-full max-w-2xl">
+					<CardHeader>
+						<CardTitle>Classify categories</CardTitle>
+						<CardDescription>
+							Tell us what each category value means. Rows marked{" "}
+							<strong>Skip</strong> will not be imported.
+						</CardDescription>
+					</CardHeader>
+					<CardContent className="space-y-6">
+						<div className="overflow-hidden rounded-lg border">
+							<table className="w-full text-sm">
+								<thead>
+									<tr className="border-b bg-muted/50">
+										<th className="px-4 py-2 text-left font-medium">
+											Raw value from CSV
+										</th>
+										<th className="px-4 py-2 text-left font-medium">Rows</th>
+										<th className="px-4 py-2 text-left font-medium">
+											Classify as
+										</th>
+									</tr>
+								</thead>
+								<tbody>
+									{Object.entries(categoryMap).map(([value, entry]) => (
+										<tr className="border-b last:border-0" key={value}>
+											<td className="px-4 py-2 font-mono text-xs">{value}</td>
+											<td className="px-4 py-2 text-muted-foreground">
+												<Badge variant="secondary">{entry.count}</Badge>
+											</td>
+											<td className="px-4 py-2">
+												<Select
+													onValueChange={(v) =>
+														setCategoryMap((prev) => {
+															const existing = prev[value];
+															if (!existing) return prev;
+															return {
+																...prev,
+																[value]: {
+																	...existing,
+																	classification: v as CategoryClassification,
+																},
+															};
+														})
+													}
+													value={entry.classification}
+												>
+													<SelectTrigger className="w-40">
+														<SelectValue />
+													</SelectTrigger>
+													<SelectContent>
+														{(
+															[
+																"INCOME",
+																"EXPENSE",
+																"SKIP",
+															] as CategoryClassification[]
+														).map((c) => (
+															<SelectItem key={c} value={c}>
+																{classificationLabels[c]}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+											</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
+						</div>
+
+						<div className="flex gap-3">
+							<Button
+								onClick={() => setStep("mapping")}
+								type="button"
+								variant="outline"
+							>
+								Back
+							</Button>
+							<Button
+								className="flex-1"
+								onClick={handleImportFromCategorize}
 								type="button"
 							>
 								Import transactions
@@ -312,6 +517,7 @@ export function OnboardingFlow() {
 		);
 	}
 
+	// ─── Importing step ────────────────────────────────────────────────────────
 	if (step === "importing") {
 		return (
 			<div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -328,7 +534,7 @@ export function OnboardingFlow() {
 		);
 	}
 
-	// done
+	// ─── Done step ─────────────────────────────────────────────────────────────
 	return (
 		<div className="flex min-h-screen items-center justify-center bg-background p-4">
 			<Card className="w-full max-w-md text-center">

@@ -6,6 +6,7 @@ import {
 	LineChart,
 	PieChart,
 	TrendingUp,
+	Upload,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -50,6 +51,15 @@ export function Sidebar() {
 						</Link>
 					);
 				})}
+				<div className="mt-auto border-t pt-3">
+					<Link
+						className="flex items-center gap-3 rounded-md px-3 py-2 text-muted-foreground text-sm transition-colors hover:bg-muted hover:text-foreground"
+						href="/onboarding"
+					>
+						<Upload className="h-4 w-4" />
+						Import data
+					</Link>
+				</div>
 			</nav>
 		</aside>
 	);

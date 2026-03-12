@@ -181,6 +181,57 @@ export const INTERNAL_FIELDS = [
 
 export type InternalFieldKey = (typeof INTERNAL_FIELDS)[number]["key"];
 
+const CLASSIFICATION_SKIP_KEYWORDS = [
+	"transfer",
+	"payment",
+	"credit card payment",
+	"balance transfer",
+	"internal transfer",
+	"zelle",
+	"wire",
+];
+
+const CLASSIFICATION_INCOME_KEYWORDS = [
+	"income",
+	"paycheck",
+	"salary",
+	"direct deposit",
+	"deposit",
+	"refund",
+	"reward",
+	"credit",
+	"bonus",
+];
+
+export type CategoryClassification = "INCOME" | "EXPENSE" | "SKIP";
+
+export function suggestClassification(rawValue: string): CategoryClassification {
+	const lower = rawValue.toLowerCase().trim();
+	if (CLASSIFICATION_SKIP_KEYWORDS.some((kw) => lower.includes(kw))) {
+		return "SKIP";
+	}
+	if (CLASSIFICATION_INCOME_KEYWORDS.some((kw) => lower.includes(kw))) {
+		return "INCOME";
+	}
+	return "EXPENSE";
+}
+
+export function buildDefaultClassifications(
+	entries: { value: string; count: number }[],
+): Record<string, { classification: CategoryClassification; count: number }> {
+	const result: Record<
+		string,
+		{ classification: CategoryClassification; count: number }
+	> = {};
+	for (const entry of entries) {
+		result[entry.value] = {
+			classification: suggestClassification(entry.value),
+			count: entry.count,
+		};
+	}
+	return result;
+}
+
 export function suggestMapping(headers: string[]): Record<string, string> {
 	const suggestions: Record<string, string> = {};
 	const fieldKeywords: Record<InternalFieldKey, string[]> = {

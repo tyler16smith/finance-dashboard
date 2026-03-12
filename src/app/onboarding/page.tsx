@@ -7,9 +7,7 @@ export default async function OnboardingPage() {
 	const session = await auth();
 	if (!session?.user) redirect("/auth/signin");
 
-	// If they already have data, send them to the dashboard
-	const hasData = await api.transaction.hasData();
-	if (hasData) redirect("/dashboard");
+	const hasExistingData = await api.transaction.hasData();
 
-	return <OnboardingFlow />;
+	return <OnboardingFlow hasExistingData={hasExistingData} />;
 }

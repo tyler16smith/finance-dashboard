@@ -67,6 +67,8 @@ export async function POST(req: Request) {
 	const formData = await req.formData();
 	const file = formData.get("file");
 	const mappingRaw = formData.get("mapping");
+	const classRaw = formData.get("categoryClassifications");
+	const modeRaw = formData.get("mode");
 
 	if (!file || typeof file === "string") {
 		return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -81,6 +83,14 @@ export async function POST(req: Request) {
 	}
 	const mapping = mappingParsed.data;
 
+	const categoryClassifications: Record<string, "INCOME" | "EXPENSE" | "SKIP"> =
+		classRaw && typeof classRaw === "string"
+			? (JSON.parse(classRaw) as Record<string, "INCOME" | "EXPENSE" | "SKIP">)
+			: {};
+
+	const mode: "replace" | "append" =
+		modeRaw === "append" ? "append" : "replace";
+
 	const text = await file.text();
 	const { data, errors } = parse<Record<string, string>>(text, {
 		header: true,
@@ -93,6 +103,11 @@ export async function POST(req: Request) {
 			{ error: "CSV parse error", details: errors[0]?.message },
 			{ status: 400 },
 		);
+	}
+
+	// Delete existing transactions if replacing
+	if (mode === "replace") {
+		await db.transaction.deleteMany({ where: { userId: session.user.id } });
 	}
 
 	const csvImport = await db.csvImport.create({
@@ -135,8 +150,29 @@ export async function POST(req: Request) {
 			continue;
 		}
 
+		const rawCatValue = mapping.category
+			? (row[mapping.category] ?? "").trim()
+			: "";
 		const typeRaw = mapping.type ? row[mapping.type] : undefined;
-		const type = inferType(typeRaw, rawAmountParsed);
+		const rawTypeValue = typeRaw?.trim() ?? "";
+
+		// Priority 1: categoryClassifications lookup (user-defined)
+		// Check category column value first, then type column value
+		const classif =
+			categoryClassifications[rawCatValue] ??
+			categoryClassifications[rawTypeValue];
+
+		if (classif === "SKIP") {
+			skipped++;
+			continue;
+		}
+
+		// Priority 2: inferType fallback
+		const type: "INCOME" | "EXPENSE" =
+			classif === "INCOME" || classif === "EXPENSE"
+				? classif
+				: inferType(typeRaw, rawAmountParsed);
+
 		const amount = Math.abs(rawAmountParsed);
 		const description = mapping.description
 			? (row[mapping.description] ?? null)
