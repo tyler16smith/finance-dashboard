@@ -4,6 +4,7 @@ import {
 	BarChart3,
 	DollarSign,
 	LineChart,
+	List,
 	PieChart,
 	TrendingUp,
 	Upload,
@@ -14,6 +15,7 @@ import { cn } from "~/lib/utils";
 
 const navItems = [
 	{ href: "/dashboard", label: "Overview", icon: BarChart3 },
+	{ href: "/dashboard/transactions", label: "Transactions", icon: List },
 	{ href: "/dashboard/investments", label: "Investments", icon: TrendingUp },
 	{ href: "/dashboard/scenarios", label: "Scenarios", icon: LineChart },
 	{ href: "/dashboard/spending", label: "Spending", icon: PieChart },

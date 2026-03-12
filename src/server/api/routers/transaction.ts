@@ -17,7 +17,8 @@ export const transactionRouter = createTRPCRouter({
 				endDate: z.date().optional(),
 				category: z.string().optional(),
 				type: z.enum(["INCOME", "EXPENSE"]).optional(),
-				limit: z.number().min(1).max(500).default(100),
+				search: z.string().optional(),
+				limit: z.number().min(1).max(5000).default(100),
 				offset: z.number().default(0),
 			}),
 		)
@@ -29,6 +30,12 @@ export const transactionRouter = createTRPCRouter({
 					...(input.endDate && { date: { lte: input.endDate } }),
 					...(input.category && { category: input.category as never }),
 					...(input.type && { type: input.type as never }),
+					...(input.search && {
+						description: {
+							contains: input.search,
+							mode: "insensitive" as never,
+						},
+					}),
 				},
 				orderBy: { date: "desc" },
 				take: input.limit,
@@ -111,6 +118,54 @@ export const transactionRouter = createTRPCRouter({
 
 		return { avgIncome, avgExpenses, avgNetGain, monthCount: count };
 	}),
+
+	bulkUpdateType: protectedProcedure
+		.input(
+			z.object({
+				ids: z.array(z.string()).min(1),
+				type: z.enum(["INCOME", "EXPENSE"]),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await ctx.db.transaction.updateMany({
+				where: { id: { in: input.ids }, userId: ctx.session.user.id },
+				data: { type: input.type as never },
+			});
+			return { success: true };
+		}),
+
+	bulkDelete: protectedProcedure
+		.input(z.object({ ids: z.array(z.string()).min(1) }))
+		.mutation(async ({ ctx, input }) => {
+			await ctx.db.transaction.deleteMany({
+				where: { id: { in: input.ids }, userId: ctx.session.user.id },
+			});
+			return { success: true };
+		}),
+
+	updateType: protectedProcedure
+		.input(
+			z.object({
+				id: z.string(),
+				type: z.enum(["INCOME", "EXPENSE"]),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await ctx.db.transaction.updateMany({
+				where: { id: input.id, userId: ctx.session.user.id },
+				data: { type: input.type as never },
+			});
+			return { success: true };
+		}),
+
+	delete: protectedProcedure
+		.input(z.object({ id: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			await ctx.db.transaction.deleteMany({
+				where: { id: input.id, userId: ctx.session.user.id },
+			});
+			return { success: true };
+		}),
 
 	deleteImport: protectedProcedure
 		.input(z.object({ importId: z.string() }))
