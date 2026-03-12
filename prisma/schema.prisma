@@ -1,0 +1,192 @@
+generator client {
+    provider = "prisma-client-js"
+    output   = "../generated/prisma"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+// ─── Auth Models (NextAuth) ───────────────────────────────────────────────────
+
+model Account {
+    id                       String  @id @default(cuid())
+    userId                   String
+    type                     String
+    provider                 String
+    providerAccountId        String
+    refresh_token            String? @db.Text
+    access_token             String? @db.Text
+    expires_at               Int?
+    token_type               String?
+    scope                    String?
+    id_token                 String? @db.Text
+    session_state            String?
+    refresh_token_expires_in Int?
+    user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([provider, providerAccountId])
+}
+
+model Session {
+    id           String   @id @default(cuid())
+    sessionToken String   @unique
+    userId       String
+    expires      DateTime
+    user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+    id            String    @id @default(cuid())
+    name          String?
+    email         String?   @unique
+    emailVerified DateTime?
+    image         String?
+    username      String?   @unique
+    password      String?
+
+    accounts          Account[]
+    sessions          Session[]
+    transactions      Transaction[]
+    csvImports        CsvImport[]
+    csvMappings       CsvColumnMapping[]
+    investments       Investment[]
+    forecastScenarios ForecastScenario[]
+}
+
+model VerificationToken {
+    identifier String
+    token      String   @unique
+    expires    DateTime
+
+    @@unique([identifier, token])
+}
+
+// ─── Financial Data ───────────────────────────────────────────────────────────
+
+enum TransactionType {
+    INCOME
+    EXPENSE
+}
+
+enum TransactionCategory {
+    FOOD
+    HOUSING
+    TRANSPORTATION
+    ENTERTAINMENT
+    SUBSCRIPTIONS
+    UTILITIES
+    TRAVEL
+    SHOPPING
+    HEALTHCARE
+    EDUCATION
+    OTHER
+}
+
+model Transaction {
+    id          String              @id @default(cuid())
+    userId      String
+    date        DateTime
+    amount      Float
+    type        TransactionType
+    category    TransactionCategory @default(OTHER)
+    description String?
+    account     String?
+    importId    String?
+
+    user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+    csvImport CsvImport? @relation(fields: [importId], references: [id])
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([userId, date])
+    @@index([userId, type])
+    @@index([userId, category])
+}
+
+model CsvImport {
+    id           String        @id @default(cuid())
+    userId       String
+    filename     String
+    status       String        @default("pending")
+    rowCount     Int           @default(0)
+    skippedCount Int           @default(0)
+    user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+    transactions Transaction[]
+
+    createdAt DateTime @default(now())
+
+    @@index([userId])
+}
+
+model CsvColumnMapping {
+    id       String @id @default(cuid())
+    userId   String
+    name     String
+    mappings Json
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([userId])
+}
+
+// ─── Investments ──────────────────────────────────────────────────────────────
+
+enum InvestmentType {
+    STOCKS
+    REAL_ESTATE
+    ROTH_IRA
+    FOUR01K
+    HSA
+}
+
+model Investment {
+    id                  String         @id @default(cuid())
+    userId              String
+    type                InvestmentType
+    name                String
+    startingBalance     Float          @default(0)
+    monthlyContribution Float          @default(0)
+    annualReturnRate    Float          @default(0.07)
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([userId])
+}
+
+// ─── Scenario Modeling ────────────────────────────────────────────────────────
+
+enum ScenarioType {
+    CONSERVATIVE
+    EXPECTED
+    AGGRESSIVE
+    CUSTOM
+}
+
+model ForecastScenario {
+    id                 String       @id @default(cuid())
+    userId             String
+    name               String
+    type               ScenarioType @default(CUSTOM)
+    investmentReturn   Float        @default(0.07)
+    inflationRate      Float        @default(0.03)
+    salaryGrowth       Float        @default(0.03)
+    contributionChange Float        @default(0.0)
+    expenseGrowth      Float        @default(0.03)
+    isActive           Boolean      @default(false)
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([userId])
+}
