@@ -1,29 +1,56 @@
-# Create T3 App
+# Finance Dashboard
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+A personal finance forecasting dashboard. Import transactions via CSV, track net worth over time, model investment growth, and run scenario forecasts.
 
-## What's next? How do I make an app with this?
+## Stack
 
-We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
+- **Next.js 15** (App Router)
+- **tRPC v11** — type-safe API layer
+- **Prisma 6** + **Neon Postgres** — database
+- **NextAuth v5** — Google SSO + email/password auth
+- **Tailwind v4** + **shadcn/ui** — UI components
+- **Recharts** — charts
+- **Biome** — linting and formatting
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+## Getting Started
 
-- [Next.js](https://nextjs.org)
-- [NextAuth.js](https://next-auth.js.org)
-- [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
+1. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-## Learn More
+2. **Set up environment variables** — copy `.env.example` to `.env` and fill in:
+   ```
+   AUTH_SECRET=
+   AUTH_GOOGLE_ID=
+   AUTH_GOOGLE_SECRET=
+   DATABASE_URL=
+   ```
 
-To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
+3. **Push the database schema**
+   ```bash
+   npx prisma db push
+   ```
 
-- [Documentation](https://create.t3.gg/)
-- [Learn the T3 Stack](https://create.t3.gg/en/faq#what-learning-resources-are-currently-available) — Check out these awesome tutorials
+4. **Run the dev server**
+   ```bash
+   npm run dev
+   ```
 
-You can check out the [create-t3-app GitHub repository](https://github.com/t3-oss/create-t3-app) — your feedback and contributions are welcome!
+## Key Commands
 
-## How do I deploy this?
+```bash
+npm run dev          # Start dev server
+npm run build        # Production build
+npm run check        # Lint (Biome)
+npm run check:write  # Lint + auto-fix
+npm run db:studio    # Open Prisma Studio
+```
 
-Follow our deployment guides for [Vercel](https://create.t3.gg/en/deployment/vercel), [Netlify](https://create.t3.gg/en/deployment/netlify) and [Docker](https://create.t3.gg/en/deployment/docker) for more information.
+## Features
+
+- **CSV Import** — Upload bank exports with column mapping UI and auto-categorization
+- **Net Worth Chart** — Historical + multi-scenario forecasts (conservative / expected / aggressive)
+- **Investments** — Track investment accounts with projected growth
+- **Scenario Modeling** — Custom salary growth, return rate, expense, and inflation assumptions
+- **Spending Intelligence** — Category breakdowns and month-over-month trends
