@@ -18,12 +18,15 @@ export const transactionRouter = createTRPCRouter({
 				category: z.string().optional(),
 				type: z.enum(["INCOME", "EXPENSE"]).optional(),
 				search: z.string().optional(),
-				limit: z.number().min(1).max(5000).default(100),
-				offset: z.number().default(0),
+				hashtag: z.string().optional(),
+				sortField: z.enum(["date", "amount", "account"]).default("date"),
+				sortDir: z.enum(["asc", "desc"]).default("desc"),
+				limit: z.number().min(1).max(200).default(100),
+				cursor: z.number().default(0),
 			}),
 		)
 		.query(async ({ ctx, input }) => {
-			return ctx.db.transaction.findMany({
+			const items = await ctx.db.transaction.findMany({
 				where: {
 					userId: ctx.session.user.id,
 					...(input.startDate && { date: { gte: input.startDate } }),
@@ -36,10 +39,60 @@ export const transactionRouter = createTRPCRouter({
 							mode: "insensitive" as never,
 						},
 					}),
+					...(input.hashtag && {
+						hashtags: {
+							some: {
+								hashtag: {
+									normalizedName: input.hashtag.replace(/^#/, "").toLowerCase(),
+								},
+							},
+						},
+					}),
 				},
-				orderBy: { date: "desc" },
+				include: {
+					hashtags: {
+						include: { hashtag: true },
+					},
+				},
+				orderBy: { [input.sortField]: input.sortDir },
 				take: input.limit,
-				skip: input.offset,
+				skip: input.cursor,
+			});
+			return {
+				items,
+				nextCursor: items.length === input.limit ? input.cursor + input.limit : undefined,
+			};
+		}),
+
+	count: protectedProcedure
+		.input(
+			z.object({
+				type: z.enum(["INCOME", "EXPENSE"]).optional(),
+				search: z.string().optional(),
+				hashtag: z.string().optional(),
+			}),
+		)
+		.query(async ({ ctx, input }) => {
+			return ctx.db.transaction.count({
+				where: {
+					userId: ctx.session.user.id,
+					...(input.type && { type: input.type as never }),
+					...(input.search && {
+						description: {
+							contains: input.search,
+							mode: "insensitive" as never,
+						},
+					}),
+					...(input.hashtag && {
+						hashtags: {
+							some: {
+								hashtag: {
+									normalizedName: input.hashtag.replace(/^#/, "").toLowerCase(),
+								},
+							},
+						},
+					}),
+				},
 			});
 		}),
 
