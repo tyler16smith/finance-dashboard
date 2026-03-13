@@ -21,33 +21,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { formatCurrency } from "~/lib/forecasting";
 import { api } from "~/trpc/react";
 
-const CATEGORY_COLORS: Record<string, string> = {
-	HOUSING: "#3b82f6",
-	FOOD: "#f59e0b",
-	TRANSPORTATION: "#10b981",
-	ENTERTAINMENT: "#8b5cf6",
-	SUBSCRIPTIONS: "#ec4899",
-	UTILITIES: "#06b6d4",
-	TRAVEL: "#f97316",
-	SHOPPING: "#84cc16",
-	HEALTHCARE: "#ef4444",
-	EDUCATION: "#6366f1",
-	OTHER: "#94a3b8",
-};
+const PALETTE = [
+	"#3b82f6", "#f59e0b", "#10b981", "#8b5cf6", "#ec4899",
+	"#06b6d4", "#f97316", "#84cc16", "#ef4444", "#6366f1", "#94a3b8",
+];
 
-const CATEGORY_LABELS: Record<string, string> = {
-	HOUSING: "Housing",
-	FOOD: "Food",
-	TRANSPORTATION: "Transportation",
-	ENTERTAINMENT: "Entertainment",
-	SUBSCRIPTIONS: "Subscriptions",
-	UTILITIES: "Utilities",
-	TRAVEL: "Travel",
-	SHOPPING: "Shopping",
-	HEALTHCARE: "Healthcare",
-	EDUCATION: "Education",
-	OTHER: "Other",
-};
+function getCategoryColor(index: number): string {
+	return PALETTE[index % PALETTE.length] ?? "#94a3b8";
+}
 
 export default function SpendingPage() {
 	const { data: breakdown, isLoading: breakdownLoading } =
@@ -61,7 +42,9 @@ export default function SpendingPage() {
 
 	const { data: anomalies } = api.spending.getAnomalies.useQuery();
 
-	const topTotal = breakdown?.[0]?.total ?? 1;
+	const trendCategories = Array.from(
+		new Set(trends?.flatMap((t) => Object.keys(t).filter((k) => k !== "month")) ?? [])
+	);
 
 	return (
 		<div className="space-y-6">
@@ -84,7 +67,7 @@ export default function SpendingPage() {
 						>
 							<span className="text-amber-600">⚠</span>
 							<span>
-								<strong>{CATEGORY_LABELS[a.category] ?? a.category}</strong>{" "}
+								<strong>{a.category}</strong>{" "}
 								spending is unusually high:{" "}
 								<strong>{formatCurrency(a.currentAmount)}</strong> vs{" "}
 								{formatCurrency(a.averageAmount)} average ({a.ratio.toFixed(1)}×
@@ -106,20 +89,17 @@ export default function SpendingPage() {
 							? Array.from({ length: 5 }, (_, i) => (
 									<Skeleton className="h-8 w-full" key={i} />
 								))
-							: breakdown?.slice(0, 8).map((cat) => (
+							: breakdown?.slice(0, 8).map((cat, index) => (
 									<div className="space-y-1" key={cat.category}>
 										<div className="flex items-center justify-between text-sm">
 											<div className="flex items-center gap-2">
 												<span
 													className="h-2.5 w-2.5 rounded-full"
 													style={{
-														backgroundColor:
-															CATEGORY_COLORS[cat.category] ?? "#94a3b8",
+														backgroundColor: getCategoryColor(index),
 													}}
 												/>
-												<span>
-													{CATEGORY_LABELS[cat.category] ?? cat.category}
-												</span>
+												<span>{cat.category}</span>
 											</div>
 											<div className="flex items-center gap-3">
 												<span className="text-muted-foreground text-xs">
@@ -134,8 +114,7 @@ export default function SpendingPage() {
 											className="h-1.5"
 											style={
 												{
-													"--progress-color":
-														CATEGORY_COLORS[cat.category] ?? "#94a3b8",
+													"--progress-color": getCategoryColor(index),
 												} as React.CSSProperties
 											}
 											value={(cat.total / (breakdown[0]?.total ?? 1)) * 100}
@@ -166,7 +145,7 @@ export default function SpendingPage() {
 												cx="50%"
 												cy="50%"
 												data={breakdown?.slice(0, 8).map((d) => ({
-													name: CATEGORY_LABELS[d.category] ?? d.category,
+													name: d.category,
 													value: d.total,
 												}))}
 												dataKey="value"
@@ -182,9 +161,9 @@ export default function SpendingPage() {
 												labelLine={false}
 												outerRadius={90}
 											>
-												{breakdown?.slice(0, 8).map((d) => (
+												{breakdown?.slice(0, 8).map((d, index) => (
 													<Cell
-														fill={CATEGORY_COLORS[d.category] ?? "#94a3b8"}
+														fill={getCategoryColor(index)}
 														key={d.category}
 													/>
 												))}
@@ -196,10 +175,10 @@ export default function SpendingPage() {
 								<TabsContent value="bar">
 									<ResponsiveContainer height={240} width="100%">
 										<BarChart
-											data={breakdown?.slice(0, 8).map((d) => ({
-												name: CATEGORY_LABELS[d.category] ?? d.category,
+											data={breakdown?.slice(0, 8).map((d, index) => ({
+												name: d.category,
 												total: d.total,
-												fill: CATEGORY_COLORS[d.category] ?? "#94a3b8",
+												fill: getCategoryColor(index),
 											}))}
 										>
 											<CartesianGrid strokeDasharray="3 3" />
@@ -210,9 +189,9 @@ export default function SpendingPage() {
 											/>
 											<Tooltip formatter={(v) => formatCurrency(Number(v))} />
 											<Bar dataKey="total" radius={[4, 4, 0, 0]}>
-												{breakdown?.slice(0, 8).map((d) => (
+												{breakdown?.slice(0, 8).map((d, index) => (
 													<Cell
-														fill={CATEGORY_COLORS[d.category] ?? "#94a3b8"}
+														fill={getCategoryColor(index)}
 														key={d.category}
 													/>
 												))}
@@ -245,19 +224,15 @@ export default function SpendingPage() {
 								/>
 								<Tooltip formatter={(v) => formatCurrency(Number(v))} />
 								<Legend />
-								{Object.keys(CATEGORY_COLORS)
-									.filter((cat) =>
-										trends?.some((t) => (t as Record<string, unknown>)[cat]),
-									)
-									.map((cat) => (
-										<Bar
-											dataKey={cat}
-											fill={CATEGORY_COLORS[cat]}
-											key={cat}
-											name={CATEGORY_LABELS[cat] ?? cat}
-											stackId="stack"
-										/>
-									))}
+								{trendCategories.map((cat, index) => (
+									<Bar
+										dataKey={cat}
+										fill={getCategoryColor(index)}
+										key={cat}
+										name={cat}
+										stackId="stack"
+									/>
+								))}
 							</BarChart>
 						</ResponsiveContainer>
 					)}

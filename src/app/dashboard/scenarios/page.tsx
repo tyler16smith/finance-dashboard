@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -46,6 +46,12 @@ export default function ScenariosPage() {
 	const seedDefaults = api.scenario.seedDefaults.useMutation({
 		onSuccess: () => utils.scenario.getAll.invalidate(),
 	});
+
+	useEffect(() => {
+		if (!isLoading && (scenarios?.length ?? 0) === 0) {
+			seedDefaults.mutate();
+		}
+	}, [isLoading, scenarios?.length]);
 	const setActive = api.scenario.setActive.useMutation({
 		onSuccess: () => {
 			toast.success("Scenario updated");
@@ -88,17 +94,6 @@ export default function ScenariosPage() {
 			contributionChange: String((preset.contributionChange * 100).toFixed(1)),
 			expenseGrowth: String((preset.expenseGrowth * 100).toFixed(1)),
 		}));
-	}
-
-	if (!isLoading && (scenarios?.length ?? 0) === 0) {
-		return (
-			<div className="flex flex-col items-center justify-center gap-4 py-24">
-				<p className="text-muted-foreground">No scenarios yet.</p>
-				<Button onClick={() => seedDefaults.mutate()} variant="outline">
-					Load default scenarios
-				</Button>
-			</div>
-		);
 	}
 
 	return (
@@ -195,7 +190,7 @@ export default function ScenariosPage() {
 			</div>
 
 			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-				{isLoading
+				{isLoading || seedDefaults.isPending
 					? Array.from({ length: 3 }, (_, i) => (
 							<Skeleton className="h-48 w-full" key={i} />
 						))

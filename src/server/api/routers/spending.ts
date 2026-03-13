@@ -18,12 +18,13 @@ export const spendingRouter = createTRPCRouter({
 					type: "EXPENSE",
 					date: { gte: startDate },
 				},
-				select: { category: true, amount: true },
+				select: { categoryRef: { select: { name: true } }, amount: true },
 			});
 
 			const totals = new Map<string, number>();
 			for (const tx of transactions) {
-				totals.set(tx.category, (totals.get(tx.category) ?? 0) + tx.amount);
+				const category = tx.categoryRef?.name ?? "Uncategorized";
+				totals.set(category, (totals.get(category) ?? 0) + tx.amount);
 			}
 
 			const totalSpend = Array.from(totals.values()).reduce((s, v) => s + v, 0);
@@ -49,7 +50,7 @@ export const spendingRouter = createTRPCRouter({
 					type: "EXPENSE",
 					date: { gte: startDate },
 				},
-				select: { category: true, amount: true, date: true },
+				select: { categoryRef: { select: { name: true } }, amount: true, date: true },
 			});
 
 			// { month -> { category -> total } }
@@ -57,9 +58,10 @@ export const spendingRouter = createTRPCRouter({
 
 			for (const tx of transactions) {
 				const month = `${tx.date.getFullYear()}-${String(tx.date.getMonth() + 1).padStart(2, "0")}`;
+				const category = tx.categoryRef?.name ?? "Uncategorized";
 				if (!grouped.has(month)) grouped.set(month, new Map());
 				const cats = grouped.get(month)!;
-				cats.set(tx.category, (cats.get(tx.category) ?? 0) + tx.amount);
+				cats.set(category, (cats.get(category) ?? 0) + tx.amount);
 			}
 
 			return Array.from(grouped.entries())
@@ -124,16 +126,17 @@ export const spendingRouter = createTRPCRouter({
 				type: "EXPENSE",
 				date: { gte: startDate },
 			},
-			select: { category: true, amount: true, date: true },
+			select: { categoryRef: { select: { name: true } }, amount: true, date: true },
 		});
 
 		// Group by category and month
 		const catMonthly = new Map<string, Map<string, number>>();
 
 		for (const tx of transactions) {
+			const category = tx.categoryRef?.name ?? "Uncategorized";
 			const month = `${tx.date.getFullYear()}-${tx.date.getMonth()}`;
-			if (!catMonthly.has(tx.category)) catMonthly.set(tx.category, new Map());
-			const m = catMonthly.get(tx.category)!;
+			if (!catMonthly.has(category)) catMonthly.set(category, new Map());
+			const m = catMonthly.get(category)!;
 			m.set(month, (m.get(month) ?? 0) + tx.amount);
 		}
 

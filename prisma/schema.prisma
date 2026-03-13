@@ -54,6 +54,9 @@ model User {
     investments       Investment[]
     forecastScenarios ForecastScenario[]
     hashtags          Hashtag[]
+    rules             TransactionRule[]
+    settings          UserSettings?
+    categories        Category[]
 }
 
 model VerificationToken {
@@ -71,34 +74,23 @@ enum TransactionType {
     EXPENSE
 }
 
-enum TransactionCategory {
-    FOOD
-    HOUSING
-    TRANSPORTATION
-    ENTERTAINMENT
-    SUBSCRIPTIONS
-    UTILITIES
-    TRAVEL
-    SHOPPING
-    HEALTHCARE
-    EDUCATION
-    OTHER
-}
-
 model Transaction {
-    id          String              @id @default(cuid())
+    id          String          @id @default(cuid())
     userId      String
     date        DateTime
     amount      Float
     type        TransactionType
-    category    TransactionCategory @default(OTHER)
+    category    String          @default("OTHER")
+    categoryId  String?
     description String?
     account     String?
     importId    String?
 
-    user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-    csvImport CsvImport? @relation(fields: [importId], references: [id])
-    hashtags  TransactionHashtag[]
+    user             User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+    csvImport        CsvImport?                 @relation(fields: [importId], references: [id])
+    hashtags         TransactionHashtag[]
+    ruleApplications TransactionRuleApplication[]
+    categoryRef      Category?                  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
@@ -106,6 +98,20 @@ model Transaction {
     @@index([userId, date])
     @@index([userId, type])
     @@index([userId, category])
+    @@index([userId, categoryId])
+}
+
+model Category {
+    id        String   @id @default(cuid())
+    userId    String?
+    name      String
+    isDefault Boolean  @default(false)
+    sortOrder Int      @default(0)
+
+    user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+    transactions Transaction[]
+
+    @@index([userId])
 }
 
 model Hashtag {
@@ -118,6 +124,7 @@ model Hashtag {
 
     user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
     transactions TransactionHashtag[]
+    ruleActions  TransactionRuleAction[]
 
     @@unique([userId, normalizedName])
     @@index([userId])
@@ -161,6 +168,130 @@ model CsvColumnMapping {
     updatedAt DateTime @updatedAt
 
     @@index([userId])
+}
+
+// ─── Rules Engine ─────────────────────────────────────────────────────────────
+
+enum RuleField {
+    MERCHANT
+    DESCRIPTION
+    AMOUNT
+    CATEGORY
+    DATE
+    ACCOUNT
+    NOTES
+}
+
+enum RuleOperator {
+    CONTAINS
+    NOT_CONTAINS
+    STARTS_WITH
+    ENDS_WITH
+    EQUALS
+    NOT_EQUALS
+    GREATER_THAN
+    GREATER_THAN_OR_EQUAL
+    LESS_THAN
+    LESS_THAN_OR_EQUAL
+    IS_EMPTY
+    IS_NOT_EMPTY
+    BEFORE
+    AFTER
+    ON
+    BETWEEN
+}
+
+enum RuleActionType {
+    SET_CATEGORY
+    SET_DESCRIPTION
+    SET_TYPE
+    ADD_HASHTAG
+}
+
+enum RuleApplyModePreference {
+    ALWAYS_ASK
+    APPLY_HISTORICAL
+    FUTURE_ONLY
+}
+
+enum RuleExecutionPreference {
+    ALWAYS_ASK
+    APPLY_HISTORICAL
+    FUTURE_ONLY
+}
+
+model TransactionRule {
+    id                  String                     @id @default(cuid())
+    userId              String
+    name                String
+    isActive            Boolean                    @default(true)
+    priority            Int
+    applyModePreference RuleApplyModePreference?
+    createdAt           DateTime                   @default(now())
+    updatedAt           DateTime                   @updatedAt
+
+    user         User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+    conditions   TransactionRuleCondition[]
+    actions      TransactionRuleAction[]
+    applications TransactionRuleApplication[]
+
+    @@index([userId, isActive, priority])
+}
+
+model TransactionRuleCondition {
+    id                String       @id @default(cuid())
+    ruleId            String
+    sortOrder         Int
+    field             RuleField
+    operator          RuleOperator
+    valueText         String?
+    valueNumber       Float?
+    valueDate         DateTime?
+    secondValueText   String?
+    secondValueNumber Float?
+    secondValueDate   DateTime?
+
+    rule TransactionRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+    @@index([ruleId, sortOrder])
+}
+
+model TransactionRuleAction {
+    id        String         @id @default(cuid())
+    ruleId    String
+    sortOrder Int
+    type      RuleActionType
+    valueText String?
+    hashtagId String?
+
+    rule    TransactionRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+    hashtag Hashtag?        @relation(fields: [hashtagId], references: [id], onDelete: SetNull)
+
+    @@index([ruleId, sortOrder])
+}
+
+model TransactionRuleApplication {
+    id                   String   @id @default(cuid())
+    transactionId        String
+    ruleId               String
+    appliedAt            DateTime @default(now())
+    wasHistoricalBackfill Boolean @default(false)
+
+    transaction Transaction     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+    rule        TransactionRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+    @@index([transactionId])
+    @@index([ruleId])
+}
+
+model UserSettings {
+    id                      String                   @id @default(cuid())
+    userId                  String                   @unique
+    ruleExecutionPreference RuleExecutionPreference  @default(ALWAYS_ASK)
+    createdAt               DateTime                 @default(now())
+    updatedAt               DateTime                 @updatedAt
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // ─── Investments ──────────────────────────────────────────────────────────────

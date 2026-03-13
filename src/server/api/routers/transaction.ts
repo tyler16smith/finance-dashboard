@@ -3,6 +3,15 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 export const transactionRouter = createTRPCRouter({
+	listCategories: protectedProcedure.query(async ({ ctx }) => {
+		const cats = await ctx.db.category.findMany({
+			where: { OR: [{ userId: null }, { userId: ctx.session.user.id }] },
+			orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+			select: { name: true },
+		});
+		return cats.map((c) => c.name);
+	}),
+
 	hasData: protectedProcedure.query(async ({ ctx }) => {
 		const count = await ctx.db.transaction.count({
 			where: { userId: ctx.session.user.id },
@@ -31,7 +40,9 @@ export const transactionRouter = createTRPCRouter({
 					userId: ctx.session.user.id,
 					...(input.startDate && { date: { gte: input.startDate } }),
 					...(input.endDate && { date: { lte: input.endDate } }),
-					...(input.category && { category: input.category as never }),
+					...(input.category && {
+					categoryRef: { name: { equals: input.category, mode: "insensitive" } },
+				}),
 					...(input.type && { type: input.type as never }),
 					...(input.search && {
 						description: {
@@ -53,6 +64,7 @@ export const transactionRouter = createTRPCRouter({
 					hashtags: {
 						include: { hashtag: true },
 					},
+					categoryRef: true,
 				},
 				orderBy: { [input.sortField]: input.sortDir },
 				take: input.limit,
@@ -194,6 +206,29 @@ export const transactionRouter = createTRPCRouter({
 				where: { id: { in: input.ids }, userId: ctx.session.user.id },
 			});
 			return { success: true };
+		}),
+
+	updateCategory: protectedProcedure
+		.input(z.object({ id: z.string(), categoryName: z.string().min(1) }))
+		.mutation(async ({ ctx, input }) => {
+			let cat = await ctx.db.category.findFirst({
+				where: {
+					OR: [
+						{ userId: ctx.session.user.id, name: { equals: input.categoryName, mode: "insensitive" } },
+						{ userId: null, name: { equals: input.categoryName, mode: "insensitive" } },
+					],
+				},
+			});
+			if (!cat) {
+				cat = await ctx.db.category.create({
+					data: { userId: ctx.session.user.id, name: input.categoryName },
+				});
+			}
+			await ctx.db.transaction.updateMany({
+				where: { id: input.id, userId: ctx.session.user.id },
+				data: { categoryId: cat.id, category: cat.name },
+			});
+			return { categoryId: cat.id, categoryName: cat.name };
 		}),
 
 	updateType: protectedProcedure

@@ -36,7 +36,9 @@ interface OnboardingFlowProps {
 	hasExistingData?: boolean;
 }
 
-export function OnboardingFlow({ hasExistingData = false }: OnboardingFlowProps) {
+export function OnboardingFlow({
+	hasExistingData = false,
+}: OnboardingFlowProps) {
 	const router = useRouter();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [step, setStep] = useState<Step>("upload");
@@ -45,7 +47,9 @@ export function OnboardingFlow({ hasExistingData = false }: OnboardingFlowProps)
 	const [headers, setHeaders] = useState<string[]>([]);
 	const [preview, setPreview] = useState<Record<string, string>[]>([]);
 	const [mapping, setMapping] = useState<Record<string, string>>({});
-	const [categoryMap, setCategoryMap] = useState<Record<string, CategoryEntry>>({});
+	const [categoryMap, setCategoryMap] = useState<Record<string, CategoryEntry>>(
+		{},
+	);
 	const [importMode, setImportMode] = useState<"replace" | "append">("replace");
 	const [importResult, setImportResult] = useState<{
 		imported: number;
@@ -130,9 +134,7 @@ export function OnboardingFlow({ hasExistingData = false }: OnboardingFlowProps)
 					const catVal = mapping.category
 						? (row[mapping.category] ?? "").trim()
 						: "";
-					const typeVal = mapping.type
-						? (row[mapping.type] ?? "").trim()
-						: "";
+					const typeVal = mapping.type ? (row[mapping.type] ?? "").trim() : "";
 					if (catVal) valueCounts[catVal] = (valueCounts[catVal] ?? 0) + 1;
 					if (typeVal && typeVal !== catVal)
 						valueCounts[typeVal] = (valueCounts[typeVal] ?? 0) + 1;
@@ -158,7 +160,10 @@ export function OnboardingFlow({ hasExistingData = false }: OnboardingFlowProps)
 		const formData = new FormData();
 		formData.append("file", file);
 		formData.append("mapping", JSON.stringify(mapping));
-		formData.append("categoryClassifications", JSON.stringify(catClassifications));
+		formData.append(
+			"categoryClassifications",
+			JSON.stringify(catClassifications),
+		);
 		formData.append("mode", importMode);
 
 		try {
@@ -208,7 +213,9 @@ export function OnboardingFlow({ hasExistingData = false }: OnboardingFlowProps)
 			<div className="flex min-h-screen items-center justify-center bg-background p-4">
 				<Card className="w-full max-w-lg">
 					<CardHeader className="text-center">
-						<CardTitle className="text-2xl">Welcome to FinanceDash</CardTitle>
+						<CardTitle className="text-2xl">
+							Welcome to Finance Dashboard
+						</CardTitle>
 						<CardDescription>
 							Upload a CSV file from your bank or financial institution to get
 							started.
@@ -274,7 +281,9 @@ export function OnboardingFlow({ hasExistingData = false }: OnboardingFlowProps)
 											type="radio"
 										/>
 										<div>
-											<p className="font-medium text-sm">Replace existing data</p>
+											<p className="font-medium text-sm">
+												Replace existing data
+											</p>
 											<p className="text-muted-foreground text-xs">
 												Deletes all current income/expense transactions and
 												imports this file fresh.
@@ -290,7 +299,9 @@ export function OnboardingFlow({ hasExistingData = false }: OnboardingFlowProps)
 											type="radio"
 										/>
 										<div>
-											<p className="font-medium text-sm">Add to existing data</p>
+											<p className="font-medium text-sm">
+												Add to existing data
+											</p>
 											<p className="text-muted-foreground text-xs">
 												Appends without removing anything. Use this if your CSV
 												covers a new date range only.

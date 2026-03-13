@@ -36,7 +36,7 @@ export function TopNav() {
 						<Sidebar />
 					</SheetContent>
 				</Sheet>
-				<span className="font-semibold">FinanceDash</span>
+				<span className="font-semibold">Finance Dashboard</span>
 			</div>
 
 			<div className="hidden md:block" />

@@ -6,8 +6,10 @@ import {
 	LineChart,
 	List,
 	PieChart,
+	Tag,
 	TrendingUp,
 	Upload,
+	Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -16,9 +18,11 @@ import { cn } from "~/lib/utils";
 const navItems = [
 	{ href: "/dashboard", label: "Overview", icon: BarChart3 },
 	{ href: "/dashboard/transactions", label: "Transactions", icon: List },
+	{ href: "/dashboard/rules", label: "Rules", icon: Zap },
 	{ href: "/dashboard/investments", label: "Investments", icon: TrendingUp },
 	{ href: "/dashboard/scenarios", label: "Scenarios", icon: LineChart },
 	{ href: "/dashboard/spending", label: "Spending", icon: PieChart },
+	{ href: "/dashboard/categories", label: "Categories", icon: Tag },
 ];
 
 export function Sidebar() {
@@ -28,7 +32,7 @@ export function Sidebar() {
 		<aside className="flex h-full w-64 flex-col border-r bg-card">
 			<div className="flex h-16 items-center gap-2 border-b px-6">
 				<DollarSign className="h-6 w-6 text-primary" />
-				<span className="font-semibold text-lg">FinanceDash</span>
+				<span className="font-semibold text-lg">Finance Dashboard</span>
 			</div>
 			<nav className="flex flex-1 flex-col gap-1 p-3">
 				{navItems.map((item) => {

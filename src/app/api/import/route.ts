@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { parse } from "papaparse";
 import { z } from "zod";
-import { normalizeCategory } from "~/lib/category-normalize";
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
-import type { TransactionCategory } from "../../../../generated/prisma";
+import { loadRules, runRules } from "~/server/rules-engine/ruleRunner";
 
 const MappingSchema = z.object({
 	date: z.string(),
@@ -118,13 +117,46 @@ export async function POST(req: Request) {
 		},
 	});
 
+	// Pre-scan: collect unique raw category values from CSV (excluding SKIP rows)
+	const uniqueRawCategories = new Set<string>();
+	for (const row of data) {
+		if (mapping.category) {
+			const rawCat = (row[mapping.category] ?? "").trim();
+			if (rawCat) uniqueRawCategories.add(rawCat);
+		}
+	}
+
+	// Resolve each unique category value to a Category record
+	const existingCategories = await db.category.findMany({
+		where: { OR: [{ userId: null }, { userId: session.user.id }] },
+	});
+
+	const categoryMap = new Map<string, string>(); // rawValue → categoryId
+	for (const rawValue of uniqueRawCategories) {
+		const lower = rawValue.toLowerCase();
+		const match = existingCategories.find((c) => c.name.toLowerCase() === lower);
+		if (match) {
+			categoryMap.set(rawValue, match.id);
+		} else {
+			const created = await db.category.create({
+				data: { userId: session.user.id, name: rawValue },
+			});
+			categoryMap.set(rawValue, created.id);
+			existingCategories.push(created);
+		}
+	}
+
+	const uncategorizedId =
+		existingCategories.find((c) => c.name === "Uncategorized" && c.userId === null)?.id ?? null;
+
 	const toInsert: {
 		userId: string;
 		importId: string;
 		date: Date;
 		amount: number;
 		type: "INCOME" | "EXPENSE";
-		category: TransactionCategory;
+		category: string;
+		categoryId: string | null;
 		description: string | null;
 		account: string | null;
 	}[] = [];
@@ -177,12 +209,11 @@ export async function POST(req: Request) {
 		const description = mapping.description
 			? (row[mapping.description] ?? null)
 			: null;
-		const rawCategory = mapping.category
-			? (row[mapping.category] ?? null)
-			: null;
 		const account = mapping.account ? (row[mapping.account] ?? null) : null;
 
-		const category = normalizeCategory(description, rawCategory);
+		const categoryId = rawCatValue
+			? (categoryMap.get(rawCatValue) ?? uncategorizedId)
+			: uncategorizedId;
 
 		toInsert.push({
 			userId: session.user.id,
@@ -190,16 +221,86 @@ export async function POST(req: Request) {
 			date,
 			amount,
 			type,
-			category: category as TransactionCategory,
+			category: rawCatValue || "OTHER",
+			categoryId,
 			description,
 			account,
 		});
 	}
 
-	// Bulk insert in chunks of 500
+	// Load active rules once for the whole import batch
+	const rules = await loadRules(db, session.user.id);
+
+	// Bulk insert in chunks of 500, then apply rules
 	const CHUNK = 500;
 	for (let i = 0; i < toInsert.length; i += CHUNK) {
 		await db.transaction.createMany({ data: toInsert.slice(i, i + CHUNK) });
+	}
+
+	// Apply rules to newly inserted transactions
+	if (rules.length > 0) {
+		const newTxs = await db.transaction.findMany({
+			where: { importId: csvImport.id },
+			select: {
+				id: true, description: true, account: true, amount: true,
+				category: true, categoryRef: { select: { name: true } }, date: true,
+			},
+		});
+
+		for (const tx of newTxs) {
+			const matchable = { ...tx, category: tx.categoryRef?.name ?? tx.category };
+			const { mutation, matchedRuleIds } = runRules(matchable, rules);
+			if (matchedRuleIds.length === 0) continue;
+
+			if (mutation.type === "SKIP") {
+				await db.transaction.delete({ where: { id: tx.id } });
+				continue;
+			}
+
+			const scalarUpdate: Record<string, unknown> = {};
+
+			if (mutation.category) {
+				let cat = existingCategories.find(
+					(c) => c.name.toLowerCase() === mutation.category!.toLowerCase(),
+				);
+				if (!cat) {
+					cat = await db.category.create({
+						data: { userId: session.user.id, name: mutation.category },
+					});
+					existingCategories.push(cat);
+				}
+				scalarUpdate.categoryId = cat.id;
+				scalarUpdate.category = cat.name;
+			}
+
+			if (mutation.description !== undefined) scalarUpdate.description = mutation.description;
+			if (mutation.type) scalarUpdate.type = mutation.type;
+			if (Object.keys(scalarUpdate).length > 0) {
+				await db.transaction.update({ where: { id: tx.id }, data: scalarUpdate });
+			}
+
+			for (const normalizedName of mutation.hashtagsToAdd) {
+				const hashtag = await db.hashtag.upsert({
+					where: { userId_normalizedName: { userId: session.user.id, normalizedName } },
+					create: { userId: session.user.id, name: normalizedName, normalizedName },
+					update: {},
+				});
+				await db.transactionHashtag.upsert({
+					where: { transactionId_hashtagId: { transactionId: tx.id, hashtagId: hashtag.id } },
+					create: { transactionId: tx.id, hashtagId: hashtag.id },
+					update: {},
+				});
+			}
+
+			await db.transactionRuleApplication.createMany({
+				data: matchedRuleIds.map((ruleId) => ({
+					transactionId: tx.id,
+					ruleId,
+					wasHistoricalBackfill: false,
+				})),
+				skipDuplicates: true,
+			});
+		}
 	}
 
 	await db.csvImport.update({

@@ -3,7 +3,7 @@
 import { format } from "date-fns";
 import { X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
@@ -24,6 +24,11 @@ import {
 	TableHeader,
 	TableRow,
 } from "~/components/ui/table";
+import { HistoricalApplyDialog } from "~/app/dashboard/rules/historical-apply-dialog";
+import {
+	RuleBuilderDialog,
+	type RulePrefill,
+} from "~/app/dashboard/rules/rule-builder-dialog";
 import { api } from "~/trpc/react";
 
 const formatAmount = (value: number) =>
@@ -78,7 +83,144 @@ function fuzzyScore(candidate: string, query: string): number | null {
 	return 500 - ci; // penalise longer spans
 }
 
-// ─── Inline Hashtag Editor ────────────────────────────────────────────────────
+// ─── Inline Category Editor ───────────────────────────────────────────────────
+
+function CategoryCell({
+	allCategories,
+	category,
+	patchCache,
+	transactionId,
+}: {
+	allCategories: string[];
+	category: string;
+	patchCache: PatchCache;
+	transactionId: string;
+}) {
+	const [editing, setEditing] = useState(false);
+	const [inputValue, setInputValue] = useState("");
+	const [activeIndex, setActiveIndex] = useState(-1);
+	const inputRef = useRef<HTMLInputElement>(null);
+
+	const updateCategory = api.transaction.updateCategory.useMutation({
+		onSuccess: (result, vars) => {
+			patchCache((tx) =>
+				tx.id === vars.id
+					? {
+							...tx,
+							category: result.categoryName,
+							categoryRef: { name: result.categoryName },
+						}
+					: tx,
+			);
+		},
+		onError: () => toast.error("Failed to update category"),
+	});
+
+	const suggestions = useMemo(() => {
+		const cats = [...allCategories];
+		const query = inputValue.trim();
+		if (!query) return cats.slice(0, 6);
+		return cats
+			.map((c) => ({ name: c, score: fuzzyScore(c, query) }))
+			.filter((x): x is { name: string; score: number } => x.score !== null)
+			.sort((a, b) => b.score - a.score)
+			.slice(0, 6)
+			.map((x) => x.name);
+	}, [inputValue, allCategories]);
+
+	useEffect(() => {
+		if (editing) {
+			setInputValue(category);
+			setTimeout(() => {
+				inputRef.current?.focus();
+				inputRef.current?.select();
+			}, 0);
+		}
+	}, [editing, category]);
+
+	function commit(value: string) {
+		const trimmed = value.trim();
+		if (trimmed && trimmed !== category) {
+			updateCategory.mutate({ id: transactionId, categoryName: trimmed });
+		}
+		setEditing(false);
+		setInputValue("");
+		setActiveIndex(-1);
+	}
+
+	function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+		if (e.key === "ArrowDown") {
+			e.preventDefault();
+			setActiveIndex((i) => Math.min(i + 1, suggestions.length - 1));
+		} else if (e.key === "ArrowUp") {
+			e.preventDefault();
+			setActiveIndex((i) => Math.max(i - 1, -1));
+		} else if (e.key === "Enter") {
+			e.preventDefault();
+			const chosen = activeIndex >= 0 ? suggestions[activeIndex] : inputValue;
+			commit(chosen ?? inputValue);
+		} else if (e.key === "Escape") {
+			setEditing(false);
+			setInputValue("");
+			setActiveIndex(-1);
+		}
+	}
+
+	function handleBlur() {
+		setTimeout(() => commit(inputValue), 120);
+	}
+
+	if (editing) {
+		return (
+			<div className="relative">
+				<input
+					ref={inputRef}
+					className="w-32 rounded border bg-background px-1.5 py-0.5 text-xs outline-none focus:ring-1 focus:ring-ring"
+					onBlur={handleBlur}
+					onChange={(e) => {
+						setInputValue(e.target.value);
+						setActiveIndex(-1);
+					}}
+					onKeyDown={handleKeyDown}
+					value={inputValue}
+				/>
+				{suggestions.length > 0 && (
+					<ul className="absolute left-0 top-full z-50 mt-1 min-w-[8rem] rounded-md border bg-popover py-1 shadow-md">
+						{suggestions.map((name, i) => (
+							<li key={name}>
+								<button
+									type="button"
+									className={[
+										"w-full px-3 py-1 text-left text-xs transition-colors",
+										i === activeIndex
+											? "bg-accent text-accent-foreground"
+											: "text-popover-foreground hover:bg-accent hover:text-accent-foreground",
+									].join(" ")}
+									onMouseDown={(e) => {
+										e.preventDefault();
+										commit(name);
+									}}
+								>
+									{name}
+								</button>
+							</li>
+						))}
+					</ul>
+				)}
+			</div>
+		);
+	}
+
+	return (
+		<button
+			type="button"
+			className="rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground/80"
+			onClick={() => setEditing(true)}
+		>
+			{category || "—"}
+		</button>
+	);
+}
 
 type TxRecord = Record<string, unknown> & { id: string };
 type PatchCache = (updater: (tx: TxRecord) => TxRecord | null) => void;
@@ -142,7 +284,7 @@ function HashtagCell({
 	// Reset active index when suggestions change
 	useEffect(() => {
 		setActiveIndex(-1);
-	}, [suggestions.length, inputValue]);
+	}, [suggestions]);
 
 	function commit(name: string) {
 		const raw = name.trim().replace(/^#/, "");
@@ -219,7 +361,7 @@ function HashtagCell({
 	}
 
 	return (
-		<div className="flex flex-wrap items-center gap-1 min-w-[120px]">
+		<div className="flex min-w-[120px] flex-wrap items-center gap-1">
 			{displayNames.map((name) => {
 				const isSaving = savingTags.has(name);
 				return (
@@ -228,16 +370,17 @@ function HashtagCell({
 						className={[
 							"inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium",
 							isSaving
-								? "bg-muted text-muted-foreground/50 animate-pulse"
+								? "animate-pulse bg-muted text-muted-foreground/50"
 								: "bg-muted text-muted-foreground",
 						].join(" ")}
 					>
 						#{name}
 						{!isSaving && (
 							<button
-								onClick={() => removeTag(name)}
-								className="ml-0.5 hover:text-foreground transition-colors"
+								type="button"
 								aria-label={`Remove #${name}`}
+								className="ml-0.5 transition-colors hover:text-foreground"
+								onClick={() => removeTag(name)}
 							>
 								<X className="h-2.5 w-2.5" />
 							</button>
@@ -249,28 +392,29 @@ function HashtagCell({
 				<div className="relative">
 					<input
 						ref={inputRef}
-						value={inputValue}
+						className="w-20 rounded border bg-background px-1.5 py-0.5 text-xs outline-none focus:ring-1 focus:ring-ring"
+						onBlur={handleBlur}
 						onChange={(e) => setInputValue(e.target.value)}
 						onKeyDown={handleKeyDown}
-						onBlur={handleBlur}
 						placeholder="tag"
-						className="w-20 rounded border bg-background px-1.5 py-0.5 text-xs outline-none focus:ring-1 focus:ring-ring"
+						value={inputValue}
 					/>
 					{suggestions.length > 0 && (
-						<ul className="absolute left-0 top-full mt-1 z-50 min-w-[8rem] rounded-md border bg-popover py-1 shadow-md">
+						<ul className="absolute left-0 top-full z-50 mt-1 min-w-[8rem] rounded-md border bg-popover py-1 shadow-md">
 							{suggestions.map((name, i) => (
 								<li key={name}>
 									<button
-										onMouseDown={(e) => {
-											e.preventDefault(); // keep input focused until we commit
-											commit(name);
-										}}
+										type="button"
 										className={[
 											"w-full px-3 py-1 text-left text-xs transition-colors",
 											i === activeIndex
 												? "bg-accent text-accent-foreground"
 												: "text-popover-foreground hover:bg-accent hover:text-accent-foreground",
 										].join(" ")}
+										onMouseDown={(e) => {
+											e.preventDefault();
+											commit(name);
+										}}
 									>
 										#{name}
 									</button>
@@ -281,8 +425,12 @@ function HashtagCell({
 				</div>
 			) : (
 				<button
-					onClick={() => { setEditing(true); setInputValue(""); }}
-					className="rounded pl-2 pr-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground/80 transition-colors"
+					type="button"
+					className="rounded py-0.5 pl-2 pr-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground/80"
+					onClick={() => {
+						setEditing(true);
+						setInputValue("");
+					}}
 				>
 					+ tag
 				</button>
@@ -301,15 +449,44 @@ export default function TransactionsPage() {
 	const [pendingUpdates, setPendingUpdates] = useState<Set<string>>(new Set());
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [bulkPending, setBulkPending] = useState(false);
+	const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
+	const [rulePrefill, setRulePrefill] = useState<RulePrefill | null>(null);
+	const [historyRule, setHistoryRule] = useState<{
+		id: string;
+		name: string;
+	} | null>(null);
 
-	const utils = api.useUtils();
+	const _utils = api.useUtils();
 	const queryClient = useQueryClient();
 	const sentinelRef = useRef<HTMLDivElement>(null);
+	const hoveredRowId = useRef<string | null>(null);
+
+	const toggleRow = useCallback((id: string) => {
+		setSelected((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	}, []);
+
+	useEffect(() => {
+		function handleKeyDown(e: KeyboardEvent) {
+			if (e.key !== "x") return;
+			const tag = (e.target as HTMLElement).tagName;
+			if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+			if (!hoveredRowId.current) return;
+			toggleRow(hoveredRowId.current);
+		}
+		document.addEventListener("keydown", handleKeyDown);
+		return () => document.removeEventListener("keydown", handleKeyDown);
+	}, [toggleRow]);
 
 	const sortField = sortKey.split("-")[0] as "date" | "amount" | "account";
 	const sortDir = sortKey.split("-")[1] as "asc" | "desc";
 
 	const { data: allHashtags } = api.hashtag.list.useQuery();
+	const { data: allCategories } = api.transaction.listCategories.useQuery();
 
 	const { data: totalCount } = api.transaction.count.useQuery({
 		type: typeFilter === "ALL" ? undefined : typeFilter,
@@ -317,26 +494,21 @@ export default function TransactionsPage() {
 		hashtag: hashtagFilter || undefined,
 	});
 
-	const {
-		data,
-		isLoading,
-		fetchNextPage,
-		hasNextPage,
-		isFetchingNextPage,
-	} = api.transaction.getAll.useInfiniteQuery(
-		{
-			type: typeFilter === "ALL" ? undefined : typeFilter,
-			search: search || undefined,
-			hashtag: hashtagFilter || undefined,
-			sortField,
-			sortDir,
-			limit: 100,
-		},
-		{
-			getNextPageParam: (lastPage) => lastPage.nextCursor,
-			initialCursor: 0,
-		},
-	);
+	const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
+		api.transaction.getAll.useInfiniteQuery(
+			{
+				type: typeFilter === "ALL" ? undefined : typeFilter,
+				search: search || undefined,
+				hashtag: hashtagFilter || undefined,
+				sortField,
+				sortDir,
+				limit: 100,
+			},
+			{
+				getNextPageParam: (lastPage) => lastPage.nextCursor,
+				initialCursor: 0,
+			},
+		);
 
 	const transactions = useMemo(
 		() => data?.pages.flatMap((p) => p.items) ?? [],
@@ -368,7 +540,10 @@ export default function TransactionsPage() {
 				if (!old || typeof old !== "object") return old;
 				// Infinite query shape: { pages: [{ items: [] }], pageParams: [] }
 				if ("pages" in old) {
-					const q = old as { pages: { items: TxRecord[] }[]; pageParams: unknown[] };
+					const q = old as {
+						pages: { items: TxRecord[] }[];
+						pageParams: unknown[];
+					};
 					return {
 						...q,
 						pages: q.pages.map((page) => ({
@@ -439,7 +614,9 @@ export default function TransactionsPage() {
 		try {
 			if (value === "SKIP") {
 				await bulkDelete.mutateAsync({ ids });
-				toast.success(`Removed ${ids.length} transaction${ids.length > 1 ? "s" : ""}`);
+				toast.success(
+					`Removed ${ids.length} transaction${ids.length > 1 ? "s" : ""}`,
+				);
 			} else {
 				await bulkUpdateType.mutateAsync({ ids, type: value });
 				toast.success(
@@ -461,7 +638,9 @@ export default function TransactionsPage() {
 		if (allSelected) {
 			setSelected((prev) => {
 				const next = new Set(prev);
-				visibleIds.forEach((id) => next.delete(id));
+				for (const id of visibleIds) {
+					next.delete(id);
+				}
 				return next;
 			});
 		} else {
@@ -469,105 +648,177 @@ export default function TransactionsPage() {
 		}
 	}
 
-	function toggleRow(id: string) {
-		setSelected((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	}
-
 	const selectedCount = selected.size;
+
+	function handleAddRule() {
+		const firstId = Array.from(selected)[0];
+		const tx = transactions.find((t) => t.id === firstId);
+		if (!tx) return;
+
+		const conditions: RulePrefill["conditions"] = [];
+		if (tx.description) {
+			conditions.push({
+				field: "DESCRIPTION",
+				operator: "CONTAINS",
+				valueText: tx.description as string,
+				valueNumber: "",
+			});
+		}
+		if (tx.amount) {
+			conditions.push({
+				field: "AMOUNT",
+				operator: "EQUALS",
+				valueText: "",
+				valueNumber: String(tx.amount),
+			});
+		}
+		if (tx.account) {
+			conditions.push({
+				field: "ACCOUNT",
+				operator: "EQUALS",
+				valueText: tx.account as string,
+				valueNumber: "",
+			});
+		}
+		const categoryName =
+			(tx.categoryRef as { name: string } | null)?.name ??
+			(tx.category as string);
+		if (
+			categoryName &&
+			categoryName !== "Uncategorized" &&
+			categoryName !== "OTHER"
+		) {
+			conditions.push({
+				field: "CATEGORY",
+				operator: "EQUALS",
+				valueText: categoryName,
+				valueNumber: "",
+			});
+		}
+
+		setRulePrefill({
+			conditions:
+				conditions.length > 0
+					? conditions
+					: [
+							{
+								field: "DESCRIPTION",
+								operator: "CONTAINS",
+								valueText: "",
+								valueNumber: "",
+							},
+						],
+		});
+		setRuleDialogOpen(true);
+	}
 
 	return (
 		<div className="space-y-6 pb-24">
-			<div>
-				<h1 className="font-bold text-2xl tracking-tight">Transactions</h1>
-				<p className="text-muted-foreground text-sm">
-					Review and correct individual transactions to fix income/expense totals
-				</p>
-			</div>
-
-			{/* Filters */}
-			<div className="flex flex-wrap items-center gap-3">
-				<div className="flex rounded-lg border p-1 gap-1">
-					{(["ALL", "INCOME", "EXPENSE"] as TypeFilter[]).map((f) => (
-						<Button
-							key={f}
-							size="sm"
-							variant={typeFilter === f ? "default" : "ghost"}
-							className="h-7 px-3 text-xs"
-							onClick={() => setTypeFilter(f)}
-						>
-							{f === "ALL" ? "All" : f === "INCOME" ? "✅ Income" : "💸 Expenses"}
-						</Button>
-					))}
+			<div className="space-y-4">
+				<div>
+					<h1 className="font-bold text-2xl tracking-tight">Transactions</h1>
+					<p className="text-muted-foreground text-sm">
+						Review and correct individual transactions to fix income/expense
+						totals
+					</p>
 				</div>
-				<Input
-					className="max-w-xs"
-					placeholder="Search description..."
-					value={search}
-					onChange={(e) => setSearch(e.target.value)}
-				/>
-				{/* Hashtag filter */}
-				<Select
-					value={hashtagFilter || "__all__"}
-					onValueChange={(v) => setHashtagFilter(v === "__all__" ? "" : v)}
-				>
-					<SelectTrigger className="w-40 h-9 text-xs">
-						<SelectValue placeholder="All hashtags" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="__all__" className="text-xs">
-							All hashtags
-						</SelectItem>
-						{allHashtags?.map((h) => (
-							<SelectItem key={h.id} value={h.normalizedName} className="text-xs">
-								#{h.name}{" "}
-								<span className="text-muted-foreground">({h._count.transactions})</span>
-							</SelectItem>
+
+				{/* Filters */}
+				<div className="flex flex-wrap items-center gap-3">
+					<div className="flex gap-1 rounded-lg border p-1">
+						{(["ALL", "INCOME", "EXPENSE"] as TypeFilter[]).map((f) => (
+							<Button
+								key={f}
+								size="sm"
+								variant={typeFilter === f ? "default" : "ghost"}
+								className="h-7 px-3 text-xs"
+								onClick={() => setTypeFilter(f)}
+							>
+								{f === "ALL"
+									? "All"
+									: f === "INCOME"
+										? "✅ Income"
+										: "💸 Expenses"}
+							</Button>
 						))}
-					</SelectContent>
-				</Select>
-				<Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
-					<SelectTrigger className="w-48 h-9 text-xs">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						{(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-							<SelectItem key={k} value={k} className="text-xs">
-								{SORT_LABELS[k]}
+					</div>
+					<Input
+						className="max-w-xs"
+						placeholder="Search description..."
+						value={search}
+						onChange={(e) => setSearch(e.target.value)}
+					/>
+					{/* Hashtag filter */}
+					<Select
+						value={hashtagFilter || "__all__"}
+						onValueChange={(v) => setHashtagFilter(v === "__all__" ? "" : v)}
+					>
+						<SelectTrigger className="h-9 w-40 text-xs">
+							<SelectValue placeholder="All hashtags" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="__all__" className="text-xs">
+								All hashtags
 							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-				{!isLoading && (
-					<span className="text-muted-foreground text-sm ml-auto">
-						{totalCount ?? transactions.length} transactions
-					</span>
+							{allHashtags?.map((h) => (
+								<SelectItem
+									key={h.id}
+									value={h.normalizedName}
+									className="text-xs"
+								>
+									#{h.name}{" "}
+									<span className="text-muted-foreground">
+										({h._count.transactions})
+									</span>
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<Select
+						value={sortKey}
+						onValueChange={(v) => setSortKey(v as SortKey)}
+					>
+						<SelectTrigger className="h-9 w-48 text-xs">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
+								<SelectItem key={k} value={k} className="text-xs">
+									{SORT_LABELS[k]}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</div>
+
+				{/* Active hashtag filter badge */}
+				{hashtagFilter && (
+					<div className="flex items-center gap-2">
+						<span className="text-sm text-muted-foreground">Filtered by:</span>
+						<span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+							#{hashtagFilter}
+							<button
+								type="button"
+								className="transition-colors hover:text-primary/70"
+								onClick={() => setHashtagFilter("")}
+							>
+								<X className="h-3 w-3" />
+							</button>
+						</span>
+					</div>
 				)}
 			</div>
 
-			{/* Active hashtag filter badge */}
-			{hashtagFilter && (
-				<div className="flex items-center gap-2">
-					<span className="text-sm text-muted-foreground">Filtered by:</span>
-					<span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
-						#{hashtagFilter}
-						<button
-							onClick={() => setHashtagFilter("")}
-							className="hover:text-primary/70 transition-colors"
-						>
-							<X className="h-3 w-3" />
-						</button>
-					</span>
-				</div>
-			)}
-
 			<Card>
 				<CardHeader className="pb-2">
-					<CardTitle className="text-base">All transactions</CardTitle>
+					<div className="flex items-center justify-between">
+						<CardTitle className="text-base">All transactions</CardTitle>
+						{!isLoading && (
+							<span className="text-muted-foreground text-sm">
+								{totalCount ?? transactions.length} transactions
+							</span>
+						)}
+					</div>
 				</CardHeader>
 				<CardContent className="p-0">
 					{isLoading ? (
@@ -582,107 +833,127 @@ export default function TransactionsPage() {
 						</p>
 					) : (
 						<Table>
-							<TableHeader>
-								<TableRow>
-									<TableHead className="w-10 pl-4">
-										<input
-											type="checkbox"
-											checked={allSelected}
-											ref={(el) => {
-												if (el) el.indeterminate = someSelected && !allSelected;
-											}}
-											onChange={toggleSelectAll}
-											className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
-										/>
-									</TableHead>
-									<TableHead>Date</TableHead>
-									<TableHead>Description</TableHead>
-									<TableHead>Account</TableHead>
-									<TableHead className="text-right">Amount</TableHead>
-									<TableHead>Hashtags</TableHead>
-									<TableHead>Type</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{transactions.map((tx) => {
-									const isPending = pendingUpdates.has(tx.id);
-									const isSelected = selected.has(tx.id);
-									return (
-										<TableRow
-											key={tx.id}
-											className={[
-												isPending ? "opacity-50" : "",
-												isSelected ? "bg-muted/50" : "",
-											]
-												.filter(Boolean)
-												.join(" ")}
-										>
-											<TableCell className="pl-4">
-												<input
-													type="checkbox"
-													checked={isSelected}
-													onChange={() => toggleRow(tx.id)}
-													className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
-												/>
-											</TableCell>
-											<TableCell className="whitespace-nowrap text-muted-foreground text-xs">
-												{format(new Date(tx.date), "MMM d, yyyy")}
-											</TableCell>
-											<TableCell className="max-w-xs truncate text-sm">
-												{tx.description ?? "—"}
-											</TableCell>
-											<TableCell className="text-muted-foreground text-xs">
-												{tx.account ?? "—"}
-											</TableCell>
-											<TableCell className="text-right font-mono text-sm">
-												{formatAmount(tx.amount)}
-											</TableCell>
-											<TableCell>
-												<HashtagCell
-													transactionId={tx.id}
-													hashtags={tx.hashtags}
-													allHashtags={allHashtags ?? []}
-													patchCache={patchCache}
-												/>
-											</TableCell>
-											<TableCell>
-												<Select
-													disabled={isPending}
-													value={tx.type}
-													onValueChange={(v) =>
-														handleClassify(tx.id, v as TxClassification)
-													}
-												>
-													<SelectTrigger className="h-7 w-36 text-xs">
-														<SelectValue />
-													</SelectTrigger>
-													<SelectContent>
-														{(
-															["INCOME", "EXPENSE", "SKIP"] as TxClassification[]
-														).map((c) => (
-															<SelectItem key={c} value={c} className="text-xs">
-																{CLASSIFICATION_LABELS[c]}
-															</SelectItem>
-														))}
-													</SelectContent>
-												</Select>
-											</TableCell>
-										</TableRow>
-									);
-								})}
-							</TableBody>
-						</Table>
+						<TableHeader className="sticky top-0 z-10 bg-card">
+							<TableRow>
+								<TableHead className="w-10 pl-4">
+									<input
+										type="checkbox"
+										checked={allSelected}
+										ref={(el) => {
+											if (el) el.indeterminate = someSelected && !allSelected;
+										}}
+										onChange={toggleSelectAll}
+										className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
+									/>
+								</TableHead>
+								<TableHead>Date</TableHead>
+								<TableHead>Description</TableHead>
+								<TableHead>Account</TableHead>
+								<TableHead className="text-right">Amount</TableHead>
+								<TableHead>Category</TableHead>
+								<TableHead>Hashtags</TableHead>
+								<TableHead>Type</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{transactions.map((tx) => {
+								const isPending = pendingUpdates.has(tx.id);
+								const isSelected = selected.has(tx.id);
+								return (
+									<TableRow
+										key={tx.id}
+										onMouseEnter={() => {
+											hoveredRowId.current = tx.id;
+										}}
+										onMouseLeave={() => {
+											hoveredRowId.current = null;
+										}}
+										className={[
+											isPending ? "opacity-50" : "",
+											isSelected ? "bg-muted/50" : "",
+										]
+											.filter(Boolean)
+											.join(" ")}
+									>
+										<TableCell className="pl-4">
+											<input
+												type="checkbox"
+												checked={isSelected}
+												onChange={() => toggleRow(tx.id)}
+												className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
+											/>
+										</TableCell>
+										<TableCell className="whitespace-nowrap text-muted-foreground text-xs">
+											{format(new Date(tx.date), "MMM d, yyyy")}
+										</TableCell>
+										<TableCell className="max-w-xs truncate text-sm">
+											{tx.description ?? "—"}
+										</TableCell>
+										<TableCell className="text-muted-foreground text-xs">
+											{tx.account ?? "—"}
+										</TableCell>
+										<TableCell className="text-right font-mono text-sm">
+											{formatAmount(tx.amount)}
+										</TableCell>
+										<TableCell>
+											<CategoryCell
+												allCategories={allCategories ?? []}
+												category={
+													(tx.categoryRef as { name: string } | null)?.name ??
+													(tx.category as string) ??
+													"Uncategorized"
+												}
+												patchCache={patchCache}
+												transactionId={tx.id}
+											/>
+										</TableCell>
+										<TableCell>
+											<HashtagCell
+												transactionId={tx.id}
+												hashtags={tx.hashtags}
+												allHashtags={allHashtags ?? []}
+												patchCache={patchCache}
+											/>
+										</TableCell>
+										<TableCell>
+											<Select
+												disabled={isPending}
+												value={tx.type}
+												onValueChange={(v) =>
+													handleClassify(tx.id, v as TxClassification)
+												}
+											>
+												<SelectTrigger className="h-7 w-36 text-xs">
+													<SelectValue />
+												</SelectTrigger>
+												<SelectContent>
+													{(
+														["INCOME", "EXPENSE", "SKIP"] as TxClassification[]
+													).map((c) => (
+														<SelectItem key={c} value={c} className="text-xs">
+															{CLASSIFICATION_LABELS[c]}
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+										</TableCell>
+									</TableRow>
+								);
+							})}
+						</TableBody>
+					</Table>
+					)}
+					{/* Infinite scroll sentinel */}
+					<div ref={sentinelRef} className="h-1" />
+					{isFetchingNextPage && (
+						<div className="flex justify-center py-4">
+							<span className="text-muted-foreground text-sm">
+								Loading more...
+							</span>
+						</div>
 					)}
 				</CardContent>
 			</Card>
-
-			{/* Infinite scroll sentinel */}
-			<div ref={sentinelRef} className="h-1" />
-			{isFetchingNextPage && (
-				<div className="flex justify-center py-4">
-					<span className="text-muted-foreground text-sm">Loading more...</span>
-				</div>
-			)}
 
 			{/* Floating bulk action bar */}
 			{selectedCount > 0 && (
@@ -705,14 +976,45 @@ export default function TransactionsPage() {
 							</Button>
 						))}
 						<div className="h-4 w-px bg-border" />
+						<Button
+							size="sm"
+							variant="outline"
+							className="h-8 text-xs"
+							onClick={handleAddRule}
+						>
+							+ Add rule
+						</Button>
+						<div className="h-4 w-px bg-border" />
 						<button
+							type="button"
+							className="text-xs text-muted-foreground transition-colors hover:text-foreground"
 							onClick={() => setSelected(new Set())}
-							className="text-xs text-muted-foreground hover:text-foreground transition-colors"
 						>
 							Clear
 						</button>
 					</div>
 				</div>
+			)}
+
+			<RuleBuilderDialog
+				open={ruleDialogOpen}
+				onOpenChange={setRuleDialogOpen}
+				editingRule={null}
+				prefill={rulePrefill}
+				onSaved={(rule) => {
+					setRuleDialogOpen(false);
+					setHistoryRule(rule);
+				}}
+			/>
+
+			{historyRule && (
+				<HistoricalApplyDialog
+					rule={historyRule}
+					open={!!historyRule}
+					onOpenChange={(open) => {
+						if (!open) setHistoryRule(null);
+					}}
+				/>
 			)}
 		</div>
 	);
