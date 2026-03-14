@@ -36,7 +36,7 @@ export function TopNav() {
 						<Sidebar />
 					</SheetContent>
 				</Sheet>
-				<span className="font-semibold">Finance Dashboard</span>
+				<span className="font-semibold">Fin</span>
 			</div>
 
 			<div className="hidden md:block" />
@@ -44,7 +44,11 @@ export function TopNav() {
 			<div className="flex items-center gap-3">
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
-						<Button className="h-9 w-9 rounded-full" size="icon" variant="ghost">
+						<Button
+							className="h-9 w-9 rounded-full"
+							size="icon"
+							variant="ghost"
+						>
 							<Avatar className="h-8 w-8">
 								<AvatarImage
 									alt={session?.user?.name ?? ""}

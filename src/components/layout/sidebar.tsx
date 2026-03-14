@@ -11,6 +11,7 @@ import {
 	Upload,
 	Zap,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "~/lib/utils";
@@ -30,9 +31,9 @@ export function Sidebar() {
 
 	return (
 		<aside className="flex h-full w-64 flex-col border-r bg-card">
-			<div className="flex h-16 items-center gap-2 border-b px-6">
-				<DollarSign className="h-6 w-6 text-primary" />
-				<span className="font-semibold text-lg">Finance Dashboard</span>
+			<div className="flex h-16 items-center border-b px-6">
+				<Image src="/fin-f.svg" alt="Fin logo" width={28} height={28} />
+				<span className="font-semibold text-lg">Fin</span>
 			</div>
 			<nav className="flex flex-1 flex-col gap-1 p-3">
 				{navItems.map((item) => {

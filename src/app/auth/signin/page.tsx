@@ -62,8 +62,10 @@ function SignInForm() {
 		<div className="flex min-h-screen items-center justify-center bg-background p-4">
 			<Card className="w-full max-w-md">
 				<CardHeader className="text-center">
-					<CardTitle className="text-2xl">Welcome back</CardTitle>
-					<CardDescription>Sign in to your finance dashboard</CardDescription>
+					<CardTitle className="text-2xl">Fin</CardTitle>
+					<CardDescription>
+						Sign in to your personal financial IQ platform
+					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">
 					<Button

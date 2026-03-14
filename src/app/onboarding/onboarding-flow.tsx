@@ -213,9 +213,7 @@ export function OnboardingFlow({
 			<div className="flex min-h-screen items-center justify-center bg-background p-4">
 				<Card className="w-full max-w-lg">
 					<CardHeader className="text-center">
-						<CardTitle className="text-2xl">
-							Welcome to Finance Dashboard
-						</CardTitle>
+						<CardTitle className="text-2xl">Welcome to Fin</CardTitle>
 						<CardDescription>
 							Upload a CSV file from your bank or financial institution to get
 							started.
