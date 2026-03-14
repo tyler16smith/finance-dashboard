@@ -2,6 +2,40 @@ import { endOfMonth, startOfMonth, subMonths } from "date-fns";
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
+const filterInput = z.object({
+	type: z.enum(["INCOME", "EXPENSE"]).optional(),
+	search: z.string().optional(),
+	hashtag: z.string().optional(),
+	startDate: z.date().optional(),
+	endDate: z.date().optional(),
+});
+type FilterInput = z.infer<typeof filterInput>;
+
+function buildFilterWhere(userId: string, input: FilterInput) {
+	return {
+		userId,
+		...((input.startDate ?? input.endDate) && {
+			date: {
+				...(input.startDate && { gte: input.startDate }),
+				...(input.endDate && { lte: input.endDate }),
+			},
+		}),
+		...(input.type && { type: input.type as never }),
+		...(input.search && {
+			description: { contains: input.search, mode: "insensitive" as never },
+		}),
+		...(input.hashtag && {
+			hashtags: {
+				some: {
+					hashtag: {
+						normalizedName: input.hashtag.replace(/^#/, "").toLowerCase(),
+					},
+				},
+			},
+		}),
+	};
+}
+
 export const transactionRouter = createTRPCRouter({
 	listCategories: protectedProcedure.query(async ({ ctx }) => {
 		const cats = await ctx.db.category.findMany({
@@ -38,8 +72,12 @@ export const transactionRouter = createTRPCRouter({
 			const items = await ctx.db.transaction.findMany({
 				where: {
 					userId: ctx.session.user.id,
-					...(input.startDate && { date: { gte: input.startDate } }),
-					...(input.endDate && { date: { lte: input.endDate } }),
+					...((input.startDate ?? input.endDate) && {
+						date: {
+							...(input.startDate && { gte: input.startDate }),
+							...(input.endDate && { lte: input.endDate }),
+						},
+					}),
 					...(input.category && {
 					categoryRef: { name: { equals: input.category, mode: "insensitive" } },
 				}),
@@ -77,35 +115,30 @@ export const transactionRouter = createTRPCRouter({
 		}),
 
 	count: protectedProcedure
-		.input(
-			z.object({
-				type: z.enum(["INCOME", "EXPENSE"]).optional(),
-				search: z.string().optional(),
-				hashtag: z.string().optional(),
-			}),
-		)
+		.input(filterInput)
 		.query(async ({ ctx, input }) => {
 			return ctx.db.transaction.count({
-				where: {
-					userId: ctx.session.user.id,
-					...(input.type && { type: input.type as never }),
-					...(input.search && {
-						description: {
-							contains: input.search,
-							mode: "insensitive" as never,
-						},
-					}),
-					...(input.hashtag && {
-						hashtags: {
-							some: {
-								hashtag: {
-									normalizedName: input.hashtag.replace(/^#/, "").toLowerCase(),
-								},
-							},
-						},
-					}),
-				},
+				where: buildFilterWhere(ctx.session.user.id, input),
 			});
+		}),
+
+	getSummary: protectedProcedure
+		.input(filterInput)
+		.query(async ({ ctx, input }) => {
+			const rows = await ctx.db.transaction.groupBy({
+				by: ["type"],
+				where: buildFilterWhere(ctx.session.user.id, input),
+				_sum: { amount: true },
+				_count: { id: true },
+			});
+			const income = rows.find((r) => r.type === "INCOME");
+			const expense = rows.find((r) => r.type === "EXPENSE");
+			return {
+				incomeSum: income?._sum.amount ?? 0,
+				incomeCount: income?._count.id ?? 0,
+				expenseSum: expense?._sum.amount ?? 0,
+				expenseCount: expense?._count.id ?? 0,
+			};
 		}),
 
 	getMonthlyAggregates: protectedProcedure

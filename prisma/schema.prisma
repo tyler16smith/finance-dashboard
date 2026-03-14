@@ -46,17 +46,18 @@ model User {
     username      String?   @unique
     password      String?
 
-    accounts          Account[]
-    sessions          Session[]
-    transactions      Transaction[]
-    csvImports        CsvImport[]
-    csvMappings       CsvColumnMapping[]
-    investments       Investment[]
-    forecastScenarios ForecastScenario[]
-    hashtags          Hashtag[]
-    rules             TransactionRule[]
-    settings          UserSettings?
-    categories        Category[]
+    accounts             Account[]
+    sessions             Session[]
+    transactions         Transaction[]
+    csvImports           CsvImport[]
+    csvMappings          CsvColumnMapping[]
+    investments          Investment[]
+    realEstateInvestments RealEstateInvestment[]
+    forecastScenarios    ForecastScenario[]
+    hashtags             Hashtag[]
+    rules                TransactionRule[]
+    settings             UserSettings?
+    categories           Category[]
 }
 
 model VerificationToken {
@@ -304,6 +305,28 @@ enum InvestmentType {
     HSA
 }
 
+enum RealEstatePropertyType {
+    SINGLE_FAMILY
+    MULTI_FAMILY
+    CONDO
+    COMMERCIAL
+    LAND
+    OTHER
+}
+
+enum RealEstateUsageType {
+    PRIMARY_RESIDENCE
+    RENTAL
+    VACATION_HOME
+    MIXED_USE
+}
+
+enum RealEstateForecastScenario {
+    MODERATE
+    STANDARD
+    AGGRESSIVE
+}
+
 model Investment {
     id                  String         @id @default(cuid())
     userId              String
@@ -312,6 +335,55 @@ model Investment {
     startingBalance     Float          @default(0)
     monthlyContribution Float          @default(0)
     annualReturnRate    Float          @default(0.07)
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([userId])
+}
+
+model RealEstateInvestment {
+    id                     String                      @id @default(cuid())
+    userId                 String
+
+    name                   String
+    propertyType           RealEstatePropertyType
+    usageType              RealEstateUsageType
+
+    purchasePrice          Float?
+    purchaseDate           DateTime?
+    downPayment            Float?
+    closingCosts           Float?
+    rehabCosts             Float?
+
+    currentEstimatedValue  Float
+    currentLoanBalance     Float
+
+    interestRate           Float?
+    loanTermYears          Int?
+    remainingTermMonths    Int?
+    monthlyMortgagePayment Float?
+
+    monthlyRent            Float?
+    otherMonthlyIncome     Float?
+    vacancyRate            Float?
+
+    totalMonthlyExpenses   Float?
+
+    monthlyPropertyTax     Float?
+    monthlyInsurance       Float?
+    monthlyHOA             Float?
+    monthlyUtilities       Float?
+    monthlyMaintenance     Float?
+    monthlyManagement      Float?
+    monthlyOtherExpenses   Float?
+
+    appreciationRate       Float?
+    expenseGrowthRate      Float?
+
+    forecastScenario       RealEstateForecastScenario  @default(STANDARD)
 
     user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

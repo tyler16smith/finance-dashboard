@@ -1,9 +1,9 @@
 "use client";
 
+import { ForecastSelector } from "~/components/charts/forecast-selector";
 import { MonthlyNetGainsChart } from "~/components/charts/monthly-net-gains-chart";
 import { NetWorthChart } from "~/components/charts/net-worth-chart";
 import { SummaryMetricCard } from "~/components/dashboard/summary-metric-card";
-import { ForecastProvider } from "~/context/forecast-context";
 import { api } from "~/trpc/react";
 
 export default function DashboardPage() {
@@ -17,13 +17,15 @@ export default function DashboardPage() {
 	const activeScenario = scenarios?.find((s) => s.isActive) ?? null;
 
 	return (
-		<ForecastProvider>
-			<div className="space-y-6">
-				<div>
-					<h1 className="font-bold text-2xl tracking-tight">Overview</h1>
-					<p className="text-muted-foreground text-sm">
-						Your financial summary and projections
-					</p>
+		<div className="space-y-6">
+				<div className="flex items-center justify-between">
+					<div>
+						<h1 className="font-bold text-2xl tracking-tight">Overview</h1>
+						<p className="text-muted-foreground text-sm">
+							Your financial summary and projections
+						</p>
+					</div>
+					<ForecastSelector />
 				</div>
 
 				<NetWorthChart
@@ -62,6 +64,5 @@ export default function DashboardPage() {
 					/>
 				</div>
 			</div>
-		</ForecastProvider>
 	);
 }

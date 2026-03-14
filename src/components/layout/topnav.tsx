@@ -41,36 +41,38 @@ export function TopNav() {
 
 			<div className="hidden md:block" />
 
-			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
-					<Button className="h-9 w-9 rounded-full" size="icon" variant="ghost">
-						<Avatar className="h-8 w-8">
-							<AvatarImage
-								alt={session?.user?.name ?? ""}
-								src={session?.user?.image ?? ""}
-							/>
-							<AvatarFallback>
-								{initials ?? <User className="h-4 w-4" />}
-							</AvatarFallback>
-						</Avatar>
-					</Button>
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="w-48">
-					<div className="px-2 py-1.5">
-						<p className="font-medium text-sm">{session?.user?.name}</p>
-						<p className="text-muted-foreground text-xs">
-							{session?.user?.email}
-						</p>
-					</div>
-					<DropdownMenuSeparator />
-					<DropdownMenuItem
-						onClick={() => signOut({ callbackUrl: "/auth/signin" })}
-					>
-						<LogOut className="mr-2 h-4 w-4" />
-						Sign out
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
+			<div className="flex items-center gap-3">
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button className="h-9 w-9 rounded-full" size="icon" variant="ghost">
+							<Avatar className="h-8 w-8">
+								<AvatarImage
+									alt={session?.user?.name ?? ""}
+									src={session?.user?.image ?? ""}
+								/>
+								<AvatarFallback>
+									{initials ?? <User className="h-4 w-4" />}
+								</AvatarFallback>
+							</Avatar>
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end" className="w-48">
+						<div className="px-2 py-1.5">
+							<p className="font-medium text-sm">{session?.user?.name}</p>
+							<p className="text-muted-foreground text-xs">
+								{session?.user?.email}
+							</p>
+						</div>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem
+							onClick={() => signOut({ callbackUrl: "/auth/signin" })}
+						>
+							<LogOut className="mr-2 h-4 w-4" />
+							Sign out
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			</div>
 		</header>
 	);
 }

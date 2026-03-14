@@ -22,7 +22,6 @@ import {
 	type ScenarioMultipliers,
 } from "~/lib/forecasting";
 import { api } from "~/trpc/react";
-import { ForecastSelector } from "./forecast-selector";
 
 interface Props {
 	monthlyData: MonthlyDataPoint[];
@@ -33,8 +32,9 @@ interface Props {
 export function NetWorthChart({ monthlyData, activeScenario, isLoading }: Props) {
 	const { forecastMonths } = useForecast();
 	const { data: investments, isLoading: invLoading } = api.investment.getAll.useQuery();
+	const { data: realEstateProperties, isLoading: reLoading } = api.realEstate.list.useQuery();
 
-	if (isLoading || invLoading) {
+	if (isLoading || invLoading || reLoading) {
 		return (
 			<Card>
 				<CardHeader>
@@ -48,7 +48,11 @@ export function NetWorthChart({ monthlyData, activeScenario, isLoading }: Props)
 	}
 
 	const currentInvestmentTotal =
-		investments?.reduce((sum, inv) => sum + inv.startingBalance, 0) ?? 0;
+		(investments?.reduce((sum, inv) => sum + inv.startingBalance, 0) ?? 0) +
+		(realEstateProperties?.reduce(
+			(sum, p) => sum + (p.currentEstimatedValue - p.currentLoanBalance),
+			0,
+		) ?? 0);
 
 	const baseSeries = buildNetWorthSeries(
 		monthlyData,
@@ -110,16 +114,13 @@ export function NetWorthChart({ monthlyData, activeScenario, isLoading }: Props)
 
 	return (
 		<Card>
-			<CardHeader className="flex flex-row items-center justify-between">
-				<div>
-					<CardTitle>Net Worth</CardTitle>
-					{currentInvestmentTotal > 0 && (
-						<p className="mt-0.5 text-muted-foreground text-xs">
-							Includes {formatCurrency(currentInvestmentTotal)} in investments
-						</p>
-					)}
-				</div>
-				<ForecastSelector />
+			<CardHeader>
+				<CardTitle>Net Worth</CardTitle>
+				{currentInvestmentTotal > 0 && (
+					<p className="mt-0.5 text-muted-foreground text-xs">
+						Includes {formatCurrency(currentInvestmentTotal)} in investments &amp; real estate equity
+					</p>
+				)}
 			</CardHeader>
 			<CardContent>
 				<ResponsiveContainer height={300} width="100%">

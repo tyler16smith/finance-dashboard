@@ -1,13 +1,33 @@
 "use client";
 
-import { format } from "date-fns";
-import { X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { endOfDay, format } from "date-fns";
+import { CalendarIcon, X } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+	Suspense,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
+import { HistoricalApplyDialog } from "~/app/dashboard/rules/historical-apply-dialog";
+import {
+	RuleBuilderDialog,
+	type RulePrefill,
+} from "~/app/dashboard/rules/rule-builder-dialog";
 import { Button } from "~/components/ui/button";
+import { Calendar } from "~/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "~/components/ui/popover";
 import {
 	Select,
 	SelectContent,
@@ -24,11 +44,6 @@ import {
 	TableHeader,
 	TableRow,
 } from "~/components/ui/table";
-import { HistoricalApplyDialog } from "~/app/dashboard/rules/historical-apply-dialog";
-import {
-	RuleBuilderDialog,
-	type RulePrefill,
-} from "~/app/dashboard/rules/rule-builder-dialog";
 import { api } from "~/trpc/react";
 
 const formatAmount = (value: number) =>
@@ -281,11 +296,6 @@ function HashtagCell({
 		if (editing) inputRef.current?.focus();
 	}, [editing]);
 
-	// Reset active index when suggestions change
-	useEffect(() => {
-		setActiveIndex(-1);
-	}, [suggestions]);
-
 	function commit(name: string) {
 		const raw = name.trim().replace(/^#/, "");
 		if (!raw) {
@@ -394,7 +404,10 @@ function HashtagCell({
 						ref={inputRef}
 						className="w-20 rounded border bg-background px-1.5 py-0.5 text-xs outline-none focus:ring-1 focus:ring-ring"
 						onBlur={handleBlur}
-						onChange={(e) => setInputValue(e.target.value)}
+						onChange={(e) => {
+							setInputValue(e.target.value);
+							setActiveIndex(-1);
+						}}
 						onKeyDown={handleKeyDown}
 						placeholder="tag"
 						value={inputValue}
@@ -441,11 +454,54 @@ function HashtagCell({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function TransactionsPage() {
-	const [search, setSearch] = useState("");
-	const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL");
-	const [sortKey, setSortKey] = useState<SortKey>("date-desc");
-	const [hashtagFilter, setHashtagFilter] = useState<string>("");
+function TransactionsPage() {
+	const searchParams = useSearchParams();
+	const router = useRouter();
+	const pathname = usePathname();
+
+	const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
+	const [typeFilter, setTypeFilter] = useState<TypeFilter>(() => {
+		const t = searchParams.get("type")?.toUpperCase();
+		return t === "INCOME" || t === "EXPENSE" ? t : "ALL";
+	});
+	const [sortKey, setSortKey] = useState<SortKey>(() => {
+		const s = searchParams.get("sort");
+		return s && s in SORT_LABELS ? (s as SortKey) : "date-desc";
+	});
+	const [hashtagFilter, setHashtagFilter] = useState<string>(
+		() => searchParams.get("hashtag") ?? "",
+	);
+	const fromParam = searchParams.get("from");
+	const toParam = searchParams.get("to");
+
+	const parseDateParam = (dateStr: string) => {
+		const parts = dateStr.split("-").map(Number);
+		return new Date(parts[0]!, parts[1]! - 1, parts[2]!);
+	};
+
+	const urlDateRange =
+		fromParam && toParam
+			? { from: parseDateParam(fromParam), to: parseDateParam(toParam) }
+			: undefined;
+
+	const [dateRange, setDateRange] = useState<DateRange | undefined>(urlDateRange);
+	const prevUrlKey = useRef<string | null>(null);
+	const isInitialized = useRef(false);
+
+	const urlKey = `${fromParam ?? ""}-${toParam ?? ""}`;
+	if (urlKey !== prevUrlKey.current && urlDateRange) {
+		prevUrlKey.current = urlKey;
+		setDateRange(urlDateRange);
+		isInitialized.current = true;
+	}
+
+	useEffect(() => {
+		if (!isInitialized.current && (urlDateRange || urlKey === "-")) {
+			isInitialized.current = true;
+		}
+	}, [urlDateRange, urlKey]);
+
+	const [datePickerOpen, setDatePickerOpen] = useState(false);
 	const [pendingUpdates, setPendingUpdates] = useState<Set<string>>(new Set());
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [bulkPending, setBulkPending] = useState(false);
@@ -488,18 +544,50 @@ export default function TransactionsPage() {
 	const { data: allHashtags } = api.hashtag.list.useQuery();
 	const { data: allCategories } = api.transaction.listCategories.useQuery();
 
-	const { data: totalCount } = api.transaction.count.useQuery({
+	const appliedDateRange =
+		dateRange?.from &&
+		dateRange?.to &&
+		dateRange.from.getTime() !== dateRange.to.getTime()
+			? dateRange
+			: undefined;
+
+	// Sync filters + sort to URL query params (skip until initialized from URL)
+	useEffect(() => {
+		if (!isInitialized.current) return;
+
+		const params = new URLSearchParams();
+		if (search) params.set("q", search);
+		if (typeFilter !== "ALL") params.set("type", typeFilter.toLowerCase());
+		if (sortKey !== "date-desc") params.set("sort", sortKey);
+		if (hashtagFilter) params.set("hashtag", hashtagFilter);
+		const isFullRange =
+			dateRange?.from &&
+			dateRange?.to &&
+			dateRange.from.getTime() !== dateRange.to.getTime();
+		if (isFullRange) {
+			params.set("from", format(dateRange!.from!, "yyyy-MM-dd"));
+			params.set("to", format(dateRange!.to!, "yyyy-MM-dd"));
+		}
+		const qs = params.toString();
+		router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+	}, [search, typeFilter, sortKey, hashtagFilter, dateRange, pathname, router]);
+
+	const sharedFilterArgs = {
 		type: typeFilter === "ALL" ? undefined : typeFilter,
 		search: search || undefined,
 		hashtag: hashtagFilter || undefined,
-	});
+		startDate: appliedDateRange?.from,
+		endDate: appliedDateRange?.to ? endOfDay(appliedDateRange.to) : undefined,
+	} as const;
+
+	const { data: totalCount } = api.transaction.count.useQuery(sharedFilterArgs);
+	const { data: summary } =
+		api.transaction.getSummary.useQuery(sharedFilterArgs);
 
 	const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
 		api.transaction.getAll.useInfiniteQuery(
 			{
-				type: typeFilter === "ALL" ? undefined : typeFilter,
-				search: search || undefined,
-				hashtag: hashtagFilter || undefined,
+				...sharedFilterArgs,
 				sortField,
 				sortDir,
 				limit: 100,
@@ -725,30 +813,31 @@ export default function TransactionsPage() {
 
 				{/* Filters */}
 				<div className="flex flex-wrap items-center gap-3">
-					<div className="flex gap-1 rounded-lg border p-1">
-						{(["ALL", "INCOME", "EXPENSE"] as TypeFilter[]).map((f) => (
-							<Button
-								key={f}
-								size="sm"
-								variant={typeFilter === f ? "default" : "ghost"}
-								className="h-7 px-3 text-xs"
-								onClick={() => setTypeFilter(f)}
-							>
-								{f === "ALL"
-									? "All"
-									: f === "INCOME"
-										? "✅ Income"
-										: "💸 Expenses"}
-							</Button>
-						))}
-					</div>
 					<Input
 						className="max-w-xs"
 						placeholder="Search description..."
 						value={search}
 						onChange={(e) => setSearch(e.target.value)}
 					/>
-					{/* Hashtag filter */}
+					<Select
+						value={typeFilter}
+						onValueChange={(v) => setTypeFilter(v as TypeFilter)}
+					>
+						<SelectTrigger className="h-9 w-36 text-xs">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="ALL" className="text-xs">
+								All
+							</SelectItem>
+							<SelectItem value="INCOME" className="text-xs">
+								✅ Income
+							</SelectItem>
+							<SelectItem value="EXPENSE" className="text-xs">
+								💸 Expenses
+							</SelectItem>
+						</SelectContent>
+					</Select>
 					<Select
 						value={hashtagFilter || "__all__"}
 						onValueChange={(v) => setHashtagFilter(v === "__all__" ? "" : v)}
@@ -774,11 +863,66 @@ export default function TransactionsPage() {
 							))}
 						</SelectContent>
 					</Select>
+					<Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+						<PopoverTrigger asChild>
+							<Button
+								variant="outline"
+								className={[
+									"h-9 justify-start gap-2 text-xs font-normal",
+									appliedDateRange ? "w-52" : "w-36",
+									!appliedDateRange && "text-muted-foreground",
+								]
+									.filter(Boolean)
+									.join(" ")}
+							>
+								<CalendarIcon className="h-3.5 w-3.5 shrink-0" />
+								{appliedDateRange ? (
+									<>
+										{format(appliedDateRange.from!, "MMM d, yyyy")} –{" "}
+										{format(appliedDateRange.to!, "MMM d, yyyy")}
+									</>
+								) : (
+									"Date range"
+								)}
+								{appliedDateRange && (
+									<span
+										className="ml-auto"
+										onPointerDown={(e) => e.stopPropagation()}
+										onClick={(e) => {
+											e.stopPropagation();
+											setDateRange(undefined);
+										}}
+									>
+										<X className="h-3 w-3 shrink-0 opacity-60 hover:opacity-100" />
+									</span>
+								)}
+							</Button>
+						</PopoverTrigger>
+						<PopoverContent className="w-auto p-0" align="start">
+							<Calendar
+								mode="range"
+								selected={dateRange}
+								onSelect={(range) => {
+									setDateRange(range);
+									// Only auto-close once a real range (two different dates) is picked
+									if (
+										range?.from &&
+										range?.to &&
+										range.from.getTime() !== range.to.getTime()
+									) {
+										setDatePickerOpen(false);
+									}
+								}}
+								numberOfMonths={2}
+								initialFocus
+							/>
+						</PopoverContent>
+					</Popover>
 					<Select
 						value={sortKey}
 						onValueChange={(v) => setSortKey(v as SortKey)}
 					>
-						<SelectTrigger className="h-9 w-48 text-xs">
+						<SelectTrigger className="ml-auto h-9 w-48 text-xs">
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
@@ -791,21 +935,104 @@ export default function TransactionsPage() {
 					</Select>
 				</div>
 
-				{/* Active hashtag filter badge */}
-				{hashtagFilter && (
-					<div className="flex items-center gap-2">
+				{/* Active filter badges */}
+				{(typeFilter !== "ALL" || hashtagFilter || appliedDateRange) && (
+					<div className="flex flex-wrap items-center gap-2">
 						<span className="text-sm text-muted-foreground">Filtered by:</span>
-						<span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
-							#{hashtagFilter}
-							<button
-								type="button"
-								className="transition-colors hover:text-primary/70"
-								onClick={() => setHashtagFilter("")}
-							>
-								<X className="h-3 w-3" />
-							</button>
-						</span>
+						{typeFilter !== "ALL" && (
+							<span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+								{typeFilter === "INCOME" ? "✅ Income" : "💸 Expenses"}
+								<button
+									type="button"
+									className="transition-colors hover:text-primary/70"
+									onClick={() => setTypeFilter("ALL")}
+								>
+									<X className="h-3 w-3" />
+								</button>
+							</span>
+						)}
+						{hashtagFilter && (
+							<span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+								#{hashtagFilter}
+								<button
+									type="button"
+									className="transition-colors hover:text-primary/70"
+									onClick={() => setHashtagFilter("")}
+								>
+									<X className="h-3 w-3" />
+								</button>
+							</span>
+						)}
+						{appliedDateRange && (
+							<span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+								{format(appliedDateRange.from!, "MMM d, yyyy")} –{" "}
+								{format(appliedDateRange.to!, "MMM d, yyyy")}
+								<button
+									type="button"
+									className="transition-colors hover:text-primary/70"
+									onClick={() => setDateRange(undefined)}
+								>
+									<X className="h-3 w-3" />
+								</button>
+							</span>
+						)}
 					</div>
+				)}
+			</div>
+
+			{/* Summary strip */}
+			<div className="flex items-center gap-6 text-sm">
+				<span className="text-muted-foreground">
+					Income:{" "}
+					<span className="font-medium text-foreground">
+						{summary ? formatAmount(summary.incomeSum) : "—"}
+					</span>
+					{summary && (
+						<span className="text-muted-foreground">
+							{" "}
+							({summary.incomeCount})
+						</span>
+					)}
+				</span>
+				<span className="text-muted-foreground">
+					Expenses:{" "}
+					<span className="font-medium text-foreground">
+						{summary ? formatAmount(summary.expenseSum) : "—"}
+					</span>
+					{summary && (
+						<span className="text-muted-foreground">
+							{" "}
+							({summary.expenseCount})
+						</span>
+					)}
+				</span>
+				{summary &&
+					(() => {
+						const net = summary.incomeSum - summary.expenseSum;
+						return (
+							<span className="text-muted-foreground">
+								Net:{" "}
+								<span
+									className={[
+										"font-medium",
+										net >= 0
+											? "text-emerald-600 dark:text-emerald-400"
+											: "text-rose-600 dark:text-rose-400",
+									].join(" ")}
+								>
+									{net >= 0 ? "+" : ""}
+									{formatAmount(Math.abs(net))}
+								</span>
+							</span>
+						);
+					})()}
+				{(typeFilter !== "ALL" ||
+					search ||
+					hashtagFilter ||
+					appliedDateRange) && (
+					<span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+						filtered
+					</span>
 				)}
 			</div>
 
@@ -833,115 +1060,121 @@ export default function TransactionsPage() {
 						</p>
 					) : (
 						<Table>
-						<TableHeader className="sticky top-0 z-10 bg-card">
-							<TableRow>
-								<TableHead className="w-10 pl-4">
-									<input
-										type="checkbox"
-										checked={allSelected}
-										ref={(el) => {
-											if (el) el.indeterminate = someSelected && !allSelected;
-										}}
-										onChange={toggleSelectAll}
-										className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
-									/>
-								</TableHead>
-								<TableHead>Date</TableHead>
-								<TableHead>Description</TableHead>
-								<TableHead>Account</TableHead>
-								<TableHead className="text-right">Amount</TableHead>
-								<TableHead>Category</TableHead>
-								<TableHead>Hashtags</TableHead>
-								<TableHead>Type</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{transactions.map((tx) => {
-								const isPending = pendingUpdates.has(tx.id);
-								const isSelected = selected.has(tx.id);
-								return (
-									<TableRow
-										key={tx.id}
-										onMouseEnter={() => {
-											hoveredRowId.current = tx.id;
-										}}
-										onMouseLeave={() => {
-											hoveredRowId.current = null;
-										}}
-										className={[
-											isPending ? "opacity-50" : "",
-											isSelected ? "bg-muted/50" : "",
-										]
-											.filter(Boolean)
-											.join(" ")}
-									>
-										<TableCell className="pl-4">
-											<input
-												type="checkbox"
-												checked={isSelected}
-												onChange={() => toggleRow(tx.id)}
-												className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
-											/>
-										</TableCell>
-										<TableCell className="whitespace-nowrap text-muted-foreground text-xs">
-											{format(new Date(tx.date), "MMM d, yyyy")}
-										</TableCell>
-										<TableCell className="max-w-xs truncate text-sm">
-											{tx.description ?? "—"}
-										</TableCell>
-										<TableCell className="text-muted-foreground text-xs">
-											{tx.account ?? "—"}
-										</TableCell>
-										<TableCell className="text-right font-mono text-sm">
-											{formatAmount(tx.amount)}
-										</TableCell>
-										<TableCell>
-											<CategoryCell
-												allCategories={allCategories ?? []}
-												category={
-													(tx.categoryRef as { name: string } | null)?.name ??
-													(tx.category as string) ??
-													"Uncategorized"
-												}
-												patchCache={patchCache}
-												transactionId={tx.id}
-											/>
-										</TableCell>
-										<TableCell>
-											<HashtagCell
-												transactionId={tx.id}
-												hashtags={tx.hashtags}
-												allHashtags={allHashtags ?? []}
-												patchCache={patchCache}
-											/>
-										</TableCell>
-										<TableCell>
-											<Select
-												disabled={isPending}
-												value={tx.type}
-												onValueChange={(v) =>
-													handleClassify(tx.id, v as TxClassification)
-												}
-											>
-												<SelectTrigger className="h-7 w-36 text-xs">
-													<SelectValue />
-												</SelectTrigger>
-												<SelectContent>
-													{(
-														["INCOME", "EXPENSE", "SKIP"] as TxClassification[]
-													).map((c) => (
-														<SelectItem key={c} value={c} className="text-xs">
-															{CLASSIFICATION_LABELS[c]}
-														</SelectItem>
-													))}
-												</SelectContent>
-											</Select>
-										</TableCell>
-									</TableRow>
-								);
-							})}
-						</TableBody>
-					</Table>
+							<TableHeader className="sticky top-0 z-10 bg-card">
+								<TableRow>
+									<TableHead className="w-10 pl-4">
+										<input
+											type="checkbox"
+											checked={allSelected}
+											ref={(el) => {
+												if (el) el.indeterminate = someSelected && !allSelected;
+											}}
+											onChange={toggleSelectAll}
+											className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
+										/>
+									</TableHead>
+									<TableHead>Date</TableHead>
+									<TableHead>Description</TableHead>
+									<TableHead>Account</TableHead>
+									<TableHead className="text-right">Amount</TableHead>
+									<TableHead>Category</TableHead>
+									<TableHead>Hashtags</TableHead>
+									<TableHead>Type</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{transactions.map((tx) => {
+									const isPending = pendingUpdates.has(tx.id);
+									const isSelected = selected.has(tx.id);
+									return (
+										<TableRow
+											key={tx.id}
+											onMouseEnter={() => {
+												hoveredRowId.current = tx.id;
+											}}
+											onMouseLeave={() => {
+												hoveredRowId.current = null;
+											}}
+											className={[
+												isPending ? "opacity-50" : "",
+												isSelected ? "bg-muted/50" : "",
+											]
+												.filter(Boolean)
+												.join(" ")}
+										>
+											<TableCell className="pl-4">
+												<input
+													type="checkbox"
+													checked={isSelected}
+													onChange={() => toggleRow(tx.id)}
+													className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
+												/>
+											</TableCell>
+											<TableCell className="whitespace-nowrap text-muted-foreground text-xs">
+												{format(new Date(tx.date), "MMM d, yyyy")}
+											</TableCell>
+											<TableCell className="max-w-xs truncate text-sm">
+												{tx.description ?? "—"}
+											</TableCell>
+											<TableCell className="text-muted-foreground text-xs">
+												{tx.account ?? "—"}
+											</TableCell>
+											<TableCell className="text-right font-mono text-sm">
+												{tx.type === "EXPENSE"
+													? `-${formatAmount(tx.amount)}`
+													: formatAmount(tx.amount)}
+											</TableCell>
+											<TableCell>
+												<CategoryCell
+													allCategories={allCategories ?? []}
+													category={
+														(tx.categoryRef as { name: string } | null)?.name ??
+														(tx.category as string) ??
+														"Uncategorized"
+													}
+													patchCache={patchCache}
+													transactionId={tx.id}
+												/>
+											</TableCell>
+											<TableCell>
+												<HashtagCell
+													transactionId={tx.id}
+													hashtags={tx.hashtags}
+													allHashtags={allHashtags ?? []}
+													patchCache={patchCache}
+												/>
+											</TableCell>
+											<TableCell>
+												<Select
+													disabled={isPending}
+													value={tx.type}
+													onValueChange={(v) =>
+														handleClassify(tx.id, v as TxClassification)
+													}
+												>
+													<SelectTrigger className="h-7 w-36 text-xs">
+														<SelectValue />
+													</SelectTrigger>
+													<SelectContent>
+														{(
+															[
+																"INCOME",
+																"EXPENSE",
+																"SKIP",
+															] as TxClassification[]
+														).map((c) => (
+															<SelectItem key={c} value={c} className="text-xs">
+																{CLASSIFICATION_LABELS[c]}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+											</TableCell>
+										</TableRow>
+									);
+								})}
+							</TableBody>
+						</Table>
 					)}
 					{/* Infinite scroll sentinel */}
 					<div ref={sentinelRef} className="h-1" />
@@ -1017,5 +1250,13 @@ export default function TransactionsPage() {
 				/>
 			)}
 		</div>
+	);
+}
+
+export default function TransactionsPageWrapper() {
+	return (
+		<Suspense>
+			<TransactionsPage />
+		</Suspense>
 	);
 }
