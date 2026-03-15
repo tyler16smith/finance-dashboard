@@ -11,11 +11,11 @@ import {
 	Upload,
 	Zap,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useDemoMode } from "~/context/demo-mode-context";
 import { cn } from "~/lib/utils";
+import Logo from "../common/logo";
 
 const navItems = [
 	{ href: "/dashboard", label: "Overview", icon: BarChart3 },
@@ -33,9 +33,8 @@ export function Sidebar() {
 
 	return (
 		<aside className="flex h-full w-64 flex-col border-r bg-card">
-			<div className="flex h-16 items-center border-b px-6">
-				<Image src="/fin-f.svg" alt="Fin logo" width={28} height={28} />
-				<span className="font-semibold text-lg">Fin</span>
+			<div className="flex items-center border-b h-16 px-6">
+				<Logo size="md" />
 			</div>
 			<nav className="flex flex-1 flex-col gap-1 p-3">
 				{navItems.map((item) => {

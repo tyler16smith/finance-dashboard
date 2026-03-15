@@ -1,9 +1,10 @@
 "use client";
 
+import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { signIn } from "next-auth/react";
 import { Suspense, useState } from "react";
+import Logo from "~/components/common/logo";
 import { Button } from "~/components/ui/button";
 import {
 	Card,
@@ -62,9 +63,11 @@ function SignInForm() {
 		<div className="flex min-h-screen items-center justify-center bg-background p-4">
 			<Card className="w-full max-w-md">
 				<CardHeader className="text-center">
-					<CardTitle className="text-2xl">Fin</CardTitle>
+					<CardTitle className="flex items-center justify-center">
+						<Logo size="lg" />
+					</CardTitle>
 					<CardDescription>
-						Sign in to your personal financial IQ platform
+						Your financial intelligence platform
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">

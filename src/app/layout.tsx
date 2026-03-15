@@ -7,8 +7,9 @@ import { Toaster } from "~/components/ui/sonner";
 import { TRPCReactProvider } from "~/trpc/react";
 
 export const metadata: Metadata = {
-	title: "Fin",
-	description: "Your financial IQ platform",
+	title: "Fin - Your Financial Intelligence Platform",
+	description:
+		"Your financial intelligence platform to track and forecast your finances.",
 	icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 
