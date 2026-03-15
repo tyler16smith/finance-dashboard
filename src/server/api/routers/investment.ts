@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { forecastInvestmentGrowth } from "~/lib/forecasting";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, demoOrProtectedProcedure } from "~/server/api/trpc";
+import { requireDemoUserId } from "~/server/services/demo/demo-mode.service";
+import {
+	getInvestmentsOverlay,
+	upsertOverlayInvestment,
+	deleteOverlayInvestment,
+} from "~/server/services/demo/demo-overlay.service";
+import { mergeInvestments } from "~/server/services/demo/demo-merge.service";
 
 const InvestmentTypeEnum = z.enum([
 	"STOCKS",
@@ -11,14 +18,24 @@ const InvestmentTypeEnum = z.enum([
 ]);
 
 export const investmentRouter = createTRPCRouter({
-	getAll: protectedProcedure.query(async ({ ctx }) => {
+	getAll: demoOrProtectedProcedure.query(async ({ ctx }) => {
+		if (ctx.isDemoMode) {
+			const demoUserId = await requireDemoUserId();
+			const seeded = await ctx.db.investment.findMany({
+				where: { userId: demoUserId },
+				orderBy: { createdAt: "asc" },
+			});
+			if (!ctx.demoOverlaySessionKey) return seeded;
+			const overlay = await getInvestmentsOverlay(ctx.demoOverlaySessionKey);
+			return mergeInvestments(seeded, overlay);
+		}
 		return ctx.db.investment.findMany({
-			where: { userId: ctx.session.user.id },
+			where: { userId: ctx.session!.user.id },
 			orderBy: { createdAt: "asc" },
 		});
 	}),
 
-	create: protectedProcedure
+	create: demoOrProtectedProcedure
 		.input(
 			z.object({
 				type: InvestmentTypeEnum,
@@ -29,12 +46,30 @@ export const investmentRouter = createTRPCRouter({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			if (ctx.isDemoMode) {
+				if (!ctx.demoOverlaySessionKey) throw new Error("No demo session key");
+				const demoUserId = await requireDemoUserId();
+				const now = new Date();
+				const overlayInvestment = {
+					id: crypto.randomUUID(),
+					userId: demoUserId,
+					type: input.type,
+					name: input.name,
+					startingBalance: input.startingBalance,
+					monthlyContribution: input.monthlyContribution,
+					annualReturnRate: input.annualReturnRate,
+					createdAt: now,
+					updatedAt: now,
+					_isOverlay: true as const,
+				};
+				return upsertOverlayInvestment(ctx.demoOverlaySessionKey, overlayInvestment);
+			}
 			return ctx.db.investment.create({
-				data: { ...input, userId: ctx.session.user.id },
+				data: { ...input, userId: ctx.session!.user.id },
 			});
 		}),
 
-	update: protectedProcedure
+	update: demoOrProtectedProcedure
 		.input(
 			z.object({
 				id: z.string(),
@@ -45,22 +80,42 @@ export const investmentRouter = createTRPCRouter({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			if (ctx.isDemoMode) {
+				if (!ctx.demoOverlaySessionKey) throw new Error("No demo session key");
+				const demoUserId = await requireDemoUserId();
+				// Find the current record (overlay or DB)
+				const seeded = await ctx.db.investment.findMany({
+					where: { userId: demoUserId },
+				});
+				const overlay = await getInvestmentsOverlay(ctx.demoOverlaySessionKey);
+				const merged = mergeInvestments(seeded, overlay);
+				const existing = merged.find((i) => i.id === input.id);
+				if (!existing) throw new Error("Investment not found");
+				const { id, ...data } = input;
+				const updated = { ...existing, ...data, updatedAt: new Date() };
+				return upsertOverlayInvestment(ctx.demoOverlaySessionKey, updated);
+			}
 			const { id, ...data } = input;
 			return ctx.db.investment.update({
-				where: { id, userId: ctx.session.user.id },
+				where: { id, userId: ctx.session!.user.id },
 				data,
 			});
 		}),
 
-	delete: protectedProcedure
+	delete: demoOrProtectedProcedure
 		.input(z.object({ id: z.string() }))
 		.mutation(async ({ ctx, input }) => {
+			if (ctx.isDemoMode) {
+				if (!ctx.demoOverlaySessionKey) throw new Error("No demo session key");
+				await deleteOverlayInvestment(ctx.demoOverlaySessionKey, input.id);
+				return { id: input.id };
+			}
 			return ctx.db.investment.delete({
-				where: { id: input.id, userId: ctx.session.user.id },
+				where: { id: input.id, userId: ctx.session!.user.id },
 			});
 		}),
 
-	getForecast: protectedProcedure
+	getForecast: demoOrProtectedProcedure
 		.input(
 			z.object({
 				months: z.number().min(1).max(60),
@@ -73,9 +128,24 @@ export const investmentRouter = createTRPCRouter({
 			}),
 		)
 		.query(async ({ ctx, input }) => {
-			const investments = await ctx.db.investment.findMany({
-				where: { userId: ctx.session.user.id },
-			});
+			let investments: Awaited<ReturnType<typeof ctx.db.investment.findMany>>;
+
+			if (ctx.isDemoMode) {
+				const demoUserId = await requireDemoUserId();
+				const seeded = await ctx.db.investment.findMany({
+					where: { userId: demoUserId },
+				});
+				if (ctx.demoOverlaySessionKey) {
+					const overlay = await getInvestmentsOverlay(ctx.demoOverlaySessionKey);
+					investments = mergeInvestments(seeded, overlay);
+				} else {
+					investments = seeded;
+				}
+			} else {
+				investments = await ctx.db.investment.findMany({
+					where: { userId: ctx.session!.user.id },
+				});
+			}
 
 			return investments.map((inv) => ({
 				id: inv.id,

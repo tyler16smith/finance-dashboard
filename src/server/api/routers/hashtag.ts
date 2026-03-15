@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, demoOrProtectedProcedure, protectedProcedure } from "~/server/api/trpc";
+import { requireDemoUserId } from "~/server/services/demo/demo-mode.service";
 
 function normalize(name: string) {
 	return name.replace(/^#/, "").toLowerCase().trim();
@@ -10,9 +11,10 @@ function display(name: string) {
 }
 
 export const hashtagRouter = createTRPCRouter({
-	list: protectedProcedure.query(async ({ ctx }) => {
+	list: demoOrProtectedProcedure.query(async ({ ctx }) => {
+		const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 		return ctx.db.hashtag.findMany({
-			where: { userId: ctx.session.user.id },
+			where: { userId },
 			orderBy: { name: "asc" },
 			include: { _count: { select: { transactions: true } } },
 		});

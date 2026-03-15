@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, demoOrProtectedProcedure, protectedProcedure } from "~/server/api/trpc";
+import { requireDemoUserId } from "~/server/services/demo/demo-mode.service";
 import {
 	previewBackfillCount,
 	runHistoricalBackfill,
@@ -28,9 +29,10 @@ const ActionSchema = z.object({
 });
 
 export const ruleRouter = createTRPCRouter({
-	list: protectedProcedure.query(async ({ ctx }) => {
+	list: demoOrProtectedProcedure.query(async ({ ctx }) => {
+		const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 		return ctx.db.transactionRule.findMany({
-			where: { userId: ctx.session.user.id },
+			where: { userId },
 			orderBy: { priority: "asc" },
 			include: {
 				conditions: { orderBy: { sortOrder: "asc" } },
@@ -189,10 +191,9 @@ export const ruleRouter = createTRPCRouter({
 		}),
 
 	// User settings for rule execution preference
-	getSettings: protectedProcedure.query(async ({ ctx }) => {
-		return ctx.db.userSettings.findUnique({
-			where: { userId: ctx.session.user.id },
-		});
+	getSettings: demoOrProtectedProcedure.query(async ({ ctx }) => {
+		const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
+		return ctx.db.userSettings.findUnique({ where: { userId } });
 	}),
 
 	updateSettings: protectedProcedure

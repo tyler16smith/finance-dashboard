@@ -14,6 +14,15 @@ import { ZodError } from "zod";
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
 
+function parseCookieHeader(cookieHeader: string): Record<string, string> {
+	const cookies: Record<string, string> = {};
+	for (const part of cookieHeader.split(";")) {
+		const [key, ...rest] = part.trim().split("=");
+		if (key) cookies[key.trim()] = decodeURIComponent(rest.join("=").trim());
+	}
+	return cookies;
+}
+
 /**
  * 1. CONTEXT
  *
@@ -28,10 +37,17 @@ import { db } from "~/server/db";
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
 	const session = await auth();
+	const cookieHeader = opts.headers.get("cookie") ?? "";
+	const cookies = parseCookieHeader(cookieHeader);
+
+	const isDemoMode = cookies["activeAppContext"] === "demo";
+	const demoOverlaySessionKey = cookies["demoOverlaySessionKey"] ?? null;
 
 	return {
 		db,
 		session,
+		isDemoMode,
+		demoOverlaySessionKey,
 		...opts,
 	};
 };
@@ -130,4 +146,19 @@ export const protectedProcedure = t.procedure
 				session: { ...ctx.session, user: ctx.session.user },
 			},
 		});
+	});
+
+/**
+ * Demo-or-protected procedure
+ *
+ * Allows access when either the user is authenticated OR the request is in demo mode.
+ * Used for demo-supported routers (investments, real estate, scenarios).
+ */
+export const demoOrProtectedProcedure = t.procedure
+	.use(timingMiddleware)
+	.use(({ ctx, next }) => {
+		if (!ctx.session?.user && !ctx.isDemoMode) {
+			throw new TRPCError({ code: "UNAUTHORIZED" });
+		}
+		return next({ ctx });
 	});

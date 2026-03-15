@@ -1,4 +1,5 @@
 import { authRouter } from "~/server/api/routers/auth";
+import { demoRouter } from "~/server/api/routers/demo";
 import { categoryRouter } from "~/server/api/routers/category";
 import { hashtagRouter } from "~/server/api/routers/hashtag";
 import { investmentRouter } from "~/server/api/routers/investment";
@@ -11,6 +12,7 @@ import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 
 export const appRouter = createTRPCRouter({
 	auth: authRouter,
+	demo: demoRouter,
 	transaction: transactionRouter,
 	investment: investmentRouter,
 	realEstate: realEstateRouter,

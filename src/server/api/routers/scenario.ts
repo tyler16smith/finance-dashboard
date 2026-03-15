@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, demoOrProtectedProcedure } from "~/server/api/trpc";
+import { requireDemoUserId } from "~/server/services/demo/demo-mode.service";
+import {
+	getScenariosOverlay,
+	upsertOverlayScenario,
+	deleteOverlayScenario,
+	setActiveOverlayScenario,
+} from "~/server/services/demo/demo-overlay.service";
+import { mergeScenarios } from "~/server/services/demo/demo-merge.service";
 
 const ScenarioTypeEnum = z.enum([
 	"CONSERVATIVE",
@@ -9,14 +17,24 @@ const ScenarioTypeEnum = z.enum([
 ]);
 
 export const scenarioRouter = createTRPCRouter({
-	getAll: protectedProcedure.query(async ({ ctx }) => {
+	getAll: demoOrProtectedProcedure.query(async ({ ctx }) => {
+		if (ctx.isDemoMode) {
+			const demoUserId = await requireDemoUserId();
+			const seeded = await ctx.db.forecastScenario.findMany({
+				where: { userId: demoUserId },
+				orderBy: { createdAt: "asc" },
+			});
+			if (!ctx.demoOverlaySessionKey) return seeded;
+			const overlay = await getScenariosOverlay(ctx.demoOverlaySessionKey);
+			return mergeScenarios(seeded, overlay);
+		}
 		return ctx.db.forecastScenario.findMany({
-			where: { userId: ctx.session.user.id },
+			where: { userId: ctx.session!.user.id },
 			orderBy: { createdAt: "asc" },
 		});
 	}),
 
-	create: protectedProcedure
+	create: demoOrProtectedProcedure
 		.input(
 			z.object({
 				name: z.string().min(1),
@@ -29,12 +47,27 @@ export const scenarioRouter = createTRPCRouter({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			if (ctx.isDemoMode) {
+				if (!ctx.demoOverlaySessionKey) throw new Error("No demo session key");
+				const demoUserId = await requireDemoUserId();
+				const now = new Date();
+				const overlayScenario = {
+					id: crypto.randomUUID(),
+					userId: demoUserId,
+					...input,
+					isActive: false,
+					createdAt: now,
+					updatedAt: now,
+					_isOverlay: true as const,
+				};
+				return upsertOverlayScenario(ctx.demoOverlaySessionKey, overlayScenario);
+			}
 			return ctx.db.forecastScenario.create({
-				data: { ...input, userId: ctx.session.user.id },
+				data: { ...input, userId: ctx.session!.user.id },
 			});
 		}),
 
-	update: protectedProcedure
+	update: demoOrProtectedProcedure
 		.input(
 			z.object({
 				id: z.string(),
@@ -48,49 +81,77 @@ export const scenarioRouter = createTRPCRouter({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			if (ctx.isDemoMode) {
+				if (!ctx.demoOverlaySessionKey) throw new Error("No demo session key");
+				const demoUserId = await requireDemoUserId();
+				const seeded = await ctx.db.forecastScenario.findMany({
+					where: { userId: demoUserId },
+				});
+				const overlay = await getScenariosOverlay(ctx.demoOverlaySessionKey);
+				const merged = mergeScenarios(seeded, overlay);
+				const existing = merged.find((s) => s.id === input.id);
+				if (!existing) throw new Error("Scenario not found");
+				const { id, ...data } = input;
+				const updated = { ...existing, ...data, updatedAt: new Date() };
+				return upsertOverlayScenario(ctx.demoOverlaySessionKey, updated);
+			}
 			const { id, ...data } = input;
 			return ctx.db.forecastScenario.update({
-				where: { id, userId: ctx.session.user.id },
+				where: { id, userId: ctx.session!.user.id },
 				data,
 			});
 		}),
 
-	delete: protectedProcedure
+	delete: demoOrProtectedProcedure
 		.input(z.object({ id: z.string() }))
 		.mutation(async ({ ctx, input }) => {
+			if (ctx.isDemoMode) {
+				if (!ctx.demoOverlaySessionKey) throw new Error("No demo session key");
+				await deleteOverlayScenario(ctx.demoOverlaySessionKey, input.id);
+				return { id: input.id };
+			}
 			return ctx.db.forecastScenario.delete({
-				where: { id: input.id, userId: ctx.session.user.id },
+				where: { id: input.id, userId: ctx.session!.user.id },
 			});
 		}),
 
-	setActive: protectedProcedure
+	setActive: demoOrProtectedProcedure
 		.input(z.object({ id: z.string().nullable() }))
 		.mutation(async ({ ctx, input }) => {
+			if (ctx.isDemoMode) {
+				if (!ctx.demoOverlaySessionKey) throw new Error("No demo session key");
+				await setActiveOverlayScenario(ctx.demoOverlaySessionKey, input.id);
+				return { success: true };
+			}
 			// Deactivate all
 			await ctx.db.forecastScenario.updateMany({
-				where: { userId: ctx.session.user.id },
+				where: { userId: ctx.session!.user.id },
 				data: { isActive: false },
 			});
 			// Activate selected
 			if (input.id) {
 				await ctx.db.forecastScenario.update({
-					where: { id: input.id, userId: ctx.session.user.id },
+					where: { id: input.id, userId: ctx.session!.user.id },
 					data: { isActive: true },
 				});
 			}
 			return { success: true };
 		}),
 
-	seedDefaults: protectedProcedure.mutation(async ({ ctx }) => {
+	seedDefaults: demoOrProtectedProcedure.mutation(async ({ ctx }) => {
+		if (ctx.isDemoMode) {
+			// Demo workspace already has seeded scenarios — nothing to do
+			return { seeded: false };
+		}
 		const existing = await ctx.db.forecastScenario.count({
-			where: { userId: ctx.session.user.id },
+			where: { userId: ctx.session!.user.id },
 		});
 		if (existing > 0) return { seeded: false };
 
 		await ctx.db.forecastScenario.createMany({
 			data: [
 				{
-					userId: ctx.session.user.id,
+					userId: ctx.session!.user.id,
 					name: "Conservative",
 					type: "CONSERVATIVE",
 					investmentReturn: 0.04,
@@ -100,7 +161,7 @@ export const scenarioRouter = createTRPCRouter({
 					expenseGrowth: 0.04,
 				},
 				{
-					userId: ctx.session.user.id,
+					userId: ctx.session!.user.id,
 					name: "Expected",
 					type: "EXPECTED",
 					investmentReturn: 0.07,
@@ -111,7 +172,7 @@ export const scenarioRouter = createTRPCRouter({
 					isActive: true,
 				},
 				{
-					userId: ctx.session.user.id,
+					userId: ctx.session!.user.id,
 					name: "Aggressive",
 					type: "AGGRESSIVE",
 					investmentReturn: 0.1,

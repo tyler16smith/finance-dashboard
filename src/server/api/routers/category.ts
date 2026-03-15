@@ -1,10 +1,12 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, demoOrProtectedProcedure, protectedProcedure } from "~/server/api/trpc";
+import { requireDemoUserId } from "~/server/services/demo/demo-mode.service";
 
 export const categoryRouter = createTRPCRouter({
-    list: protectedProcedure.query(async ({ ctx }) => {
+    list: demoOrProtectedProcedure.query(async ({ ctx }) => {
+        const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
         return ctx.db.category.findMany({
-            where: { OR: [{ userId: null }, { userId: ctx.session.user.id }] },
+            where: { OR: [{ userId: null }, { userId }] },
             orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
         });
     }),

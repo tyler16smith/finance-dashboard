@@ -2,7 +2,7 @@
 
 import {
 	BarChart3,
-	DollarSign,
+	FlaskConical,
 	LineChart,
 	List,
 	PieChart,
@@ -14,6 +14,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useDemoMode } from "~/context/demo-mode-context";
 import { cn } from "~/lib/utils";
 
 const navItems = [
@@ -28,6 +29,7 @@ const navItems = [
 
 export function Sidebar() {
 	const pathname = usePathname();
+	const { isDemoMode, enterDemoMode } = useDemoMode();
 
 	return (
 		<aside className="flex h-full w-64 flex-col border-r bg-card">
@@ -58,7 +60,17 @@ export function Sidebar() {
 						</Link>
 					);
 				})}
-				<div className="mt-auto border-t pt-3">
+				<div className="mt-auto border-t pt-3 space-y-1">
+					{!isDemoMode && (
+						<button
+							type="button"
+							className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-muted-foreground text-sm transition-colors hover:bg-muted hover:text-foreground"
+							onClick={() => void enterDemoMode()}
+						>
+							<FlaskConical className="h-4 w-4" />
+							Enter Demo Mode
+						</button>
+					)}
 					<Link
 						className="flex items-center gap-3 rounded-md px-3 py-2 text-muted-foreground text-sm transition-colors hover:bg-muted hover:text-foreground"
 						href="/onboarding"

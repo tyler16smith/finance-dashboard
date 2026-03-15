@@ -1,6 +1,7 @@
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, demoOrProtectedProcedure, protectedProcedure } from "~/server/api/trpc";
+import { requireDemoUserId } from "~/server/services/demo/demo-mode.service";
 
 const filterInput = z.object({
 	type: z.enum(["INCOME", "EXPENSE"]).optional(),
@@ -37,23 +38,25 @@ function buildFilterWhere(userId: string, input: FilterInput) {
 }
 
 export const transactionRouter = createTRPCRouter({
-	listCategories: protectedProcedure.query(async ({ ctx }) => {
+	listCategories: demoOrProtectedProcedure.query(async ({ ctx }) => {
+		const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 		const cats = await ctx.db.category.findMany({
-			where: { OR: [{ userId: null }, { userId: ctx.session.user.id }] },
+			where: { OR: [{ userId: null }, { userId }] },
 			orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
 			select: { name: true },
 		});
 		return cats.map((c) => c.name);
 	}),
 
-	hasData: protectedProcedure.query(async ({ ctx }) => {
+	hasData: demoOrProtectedProcedure.query(async ({ ctx }) => {
+		if (ctx.isDemoMode) return true;
 		const count = await ctx.db.transaction.count({
-			where: { userId: ctx.session.user.id },
+			where: { userId: ctx.session!.user.id },
 		});
 		return count > 0;
 	}),
 
-	getAll: protectedProcedure
+	getAll: demoOrProtectedProcedure
 		.input(
 			z.object({
 				startDate: z.date().optional(),
@@ -69,9 +72,10 @@ export const transactionRouter = createTRPCRouter({
 			}),
 		)
 		.query(async ({ ctx, input }) => {
+			const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 			const items = await ctx.db.transaction.findMany({
 				where: {
-					userId: ctx.session.user.id,
+					userId,
 					...((input.startDate ?? input.endDate) && {
 						date: {
 							...(input.startDate && { gte: input.startDate }),
@@ -114,20 +118,22 @@ export const transactionRouter = createTRPCRouter({
 			};
 		}),
 
-	count: protectedProcedure
+	count: demoOrProtectedProcedure
 		.input(filterInput)
 		.query(async ({ ctx, input }) => {
+			const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 			return ctx.db.transaction.count({
-				where: buildFilterWhere(ctx.session.user.id, input),
+				where: buildFilterWhere(userId, input),
 			});
 		}),
 
-	getSummary: protectedProcedure
+	getSummary: demoOrProtectedProcedure
 		.input(filterInput)
 		.query(async ({ ctx, input }) => {
+			const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 			const rows = await ctx.db.transaction.groupBy({
 				by: ["type"],
-				where: buildFilterWhere(ctx.session.user.id, input),
+				where: buildFilterWhere(userId, input),
 				_sum: { amount: true },
 				_count: { id: true },
 			});
@@ -141,18 +147,19 @@ export const transactionRouter = createTRPCRouter({
 			};
 		}),
 
-	getMonthlyAggregates: protectedProcedure
+	getMonthlyAggregates: demoOrProtectedProcedure
 		.input(
 			z.object({
 				months: z.number().min(1).max(60).default(24),
 			}),
 		)
 		.query(async ({ ctx, input }) => {
+			const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 			const startDate = startOfMonth(subMonths(new Date(), input.months - 1));
 
 			const transactions = await ctx.db.transaction.findMany({
 				where: {
-					userId: ctx.session.user.id,
+					userId,
 					date: { gte: startDate },
 				},
 				select: { date: true, amount: true, type: true },
@@ -186,12 +193,13 @@ export const transactionRouter = createTRPCRouter({
 				.map(([month, data]) => ({ month, ...data }));
 		}),
 
-	getSummaryMetrics: protectedProcedure.query(async ({ ctx }) => {
+	getSummaryMetrics: demoOrProtectedProcedure.query(async ({ ctx }) => {
+		const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 		const startDate = startOfMonth(subMonths(new Date(), 11));
 
 		const transactions = await ctx.db.transaction.findMany({
 			where: {
-				userId: ctx.session.user.id,
+				userId,
 				date: { gte: startDate },
 			},
 			select: { amount: true, type: true, date: true },
@@ -305,9 +313,10 @@ export const transactionRouter = createTRPCRouter({
 			return { success: true };
 		}),
 
-	getImports: protectedProcedure.query(async ({ ctx }) => {
+	getImports: demoOrProtectedProcedure.query(async ({ ctx }) => {
+		if (ctx.isDemoMode) return []; // No imports in demo mode
 		return ctx.db.csvImport.findMany({
-			where: { userId: ctx.session.user.id },
+			where: { userId: ctx.session!.user.id },
 			orderBy: { createdAt: "desc" },
 		});
 	}),

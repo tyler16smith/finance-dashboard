@@ -1,20 +1,22 @@
 import { startOfMonth, subMonths } from "date-fns";
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, demoOrProtectedProcedure } from "~/server/api/trpc";
+import { requireDemoUserId } from "~/server/services/demo/demo-mode.service";
 
 export const spendingRouter = createTRPCRouter({
-	getCategoryBreakdown: protectedProcedure
+	getCategoryBreakdown: demoOrProtectedProcedure
 		.input(
 			z.object({
 				months: z.number().min(1).max(60).default(3),
 			}),
 		)
 		.query(async ({ ctx, input }) => {
+			const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 			const startDate = startOfMonth(subMonths(new Date(), input.months - 1));
 
 			const transactions = await ctx.db.transaction.findMany({
 				where: {
-					userId: ctx.session.user.id,
+					userId,
 					type: "EXPENSE",
 					date: { gte: startDate },
 				},
@@ -39,14 +41,15 @@ export const spendingRouter = createTRPCRouter({
 				.sort((a, b) => b.total - a.total);
 		}),
 
-	getCategoryTrends: protectedProcedure
+	getCategoryTrends: demoOrProtectedProcedure
 		.input(z.object({ months: z.number().min(1).max(24).default(12) }))
 		.query(async ({ ctx, input }) => {
+			const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 			const startDate = startOfMonth(subMonths(new Date(), input.months - 1));
 
 			const transactions = await ctx.db.transaction.findMany({
 				where: {
-					userId: ctx.session.user.id,
+					userId,
 					type: "EXPENSE",
 					date: { gte: startDate },
 				},
@@ -72,12 +75,13 @@ export const spendingRouter = createTRPCRouter({
 				}));
 		}),
 
-	getRecurringExpenses: protectedProcedure.query(async ({ ctx }) => {
+	getRecurringExpenses: demoOrProtectedProcedure.query(async ({ ctx }) => {
+		const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 		const startDate = startOfMonth(subMonths(new Date(), 5));
 
 		const transactions = await ctx.db.transaction.findMany({
 			where: {
-				userId: ctx.session.user.id,
+				userId,
 				type: "EXPENSE",
 				date: { gte: startDate },
 				description: { not: null },
@@ -116,13 +120,14 @@ export const spendingRouter = createTRPCRouter({
 			.sort((a, b) => b.monthlyAmount - a.monthlyAmount);
 	}),
 
-	getAnomalies: protectedProcedure.query(async ({ ctx }) => {
+	getAnomalies: demoOrProtectedProcedure.query(async ({ ctx }) => {
+		const userId = ctx.isDemoMode ? await requireDemoUserId() : ctx.session!.user.id;
 		const startDate = startOfMonth(subMonths(new Date(), 5));
 		const currentMonthStart = startOfMonth(new Date());
 
 		const transactions = await ctx.db.transaction.findMany({
 			where: {
-				userId: ctx.session.user.id,
+				userId,
 				type: "EXPENSE",
 				date: { gte: startDate },
 			},

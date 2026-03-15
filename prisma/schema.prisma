@@ -58,6 +58,7 @@ model User {
     rules                TransactionRule[]
     settings             UserSettings?
     categories           Category[]
+    demoOverlaySessions  DemoOverlaySession[]
 }
 
 model VerificationToken {
@@ -391,6 +392,30 @@ model RealEstateInvestment {
     updatedAt DateTime @updatedAt
 
     @@index([userId])
+}
+
+// ─── Demo Mode ────────────────────────────────────────────────────────────────
+
+model DemoOverlaySession {
+    id               String   @id @default(cuid())
+    sessionKey       String   @unique
+    userId           String?
+    demoUserId       String
+    isActive         Boolean  @default(true)
+
+    expiresAt        DateTime
+    createdAt        DateTime @default(now())
+    updatedAt        DateTime @updatedAt
+
+    investmentsJson  Json?
+    propertiesJson   Json?
+    scenariosJson    Json?
+    uiStateJson      Json?
+
+    user             User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@index([userId])
+    @@index([expiresAt])
 }
 
 // ─── Scenario Modeling ────────────────────────────────────────────────────────

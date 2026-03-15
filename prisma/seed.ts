@@ -1,4 +1,5 @@
 import { PrismaClient } from "../generated/prisma";
+import { seedDemoWorkspace } from "./seeds/demo-workspace.seed";
 
 const db = new PrismaClient();
 
@@ -45,6 +46,8 @@ async function main() {
     }
 
     console.log("Done.");
+
+    await seedDemoWorkspace(db);
 }
 
 main()
