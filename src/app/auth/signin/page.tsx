@@ -1,5 +1,6 @@
 "use client";
 
+import { FlaskConical } from "lucide-react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -16,6 +17,7 @@ import {
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Separator } from "~/components/ui/separator";
+import { api } from "~/trpc/react";
 
 export default function SignInPage() {
 	return (
@@ -34,6 +36,20 @@ function SignInForm() {
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState("");
 	const [loading, setLoading] = useState(false);
+	const [demoLoading, setDemoLoading] = useState(false);
+
+	const enterDemoMode = api.demo.enterDemoMode.useMutation();
+
+	async function handleTryDemo() {
+		setDemoLoading(true);
+		const result = await enterDemoMode.mutateAsync();
+		const expires = new Date();
+		expires.setDate(expires.getDate() + 7);
+		const exp = expires.toUTCString();
+		document.cookie = `activeAppContext=demo; expires=${exp}; path=/; SameSite=Lax`;
+		document.cookie = `demoOverlaySessionKey=${encodeURIComponent(result.sessionKey)}; expires=${exp}; path=/; SameSite=Lax`;
+		router.push("/dashboard");
+	}
 
 	async function handleCredentialsSignIn(e: React.FormEvent) {
 		e.preventDefault();
@@ -73,6 +89,22 @@ function SignInForm() {
 				<CardContent className="space-y-4">
 					<Button
 						className="w-full"
+						disabled={demoLoading}
+						onClick={() => void handleTryDemo()}
+						type="button"
+					>
+						<FlaskConical className="mr-2 h-4 w-4" />
+						{demoLoading ? "Loading demo…" : "Try Demo"}
+					</Button>
+
+					<div className="flex items-center gap-3">
+						<Separator className="flex-1" />
+						<span className="text-muted-foreground text-xs">or sign in</span>
+						<Separator className="flex-1" />
+					</div>
+
+					<Button
+						className="w-full"
 						onClick={handleGoogleSignIn}
 						type="button"
 						variant="outline"
@@ -102,12 +134,6 @@ function SignInForm() {
 						</svg>
 						Continue with Google
 					</Button>
-
-					<div className="flex items-center gap-3">
-						<Separator className="flex-1" />
-						<span className="text-muted-foreground text-xs">or</span>
-						<Separator className="flex-1" />
-					</div>
 
 					<form className="space-y-4" onSubmit={handleCredentialsSignIn}>
 						<div className="space-y-2">

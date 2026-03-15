@@ -6,7 +6,8 @@ export default auth((req) => {
 
 	const isAuthPage = nextUrl.pathname.startsWith("/auth");
 	const isApiRoute = nextUrl.pathname.startsWith("/api");
-	const isPublic = isAuthPage || isApiRoute;
+	const isDemoMode = req.cookies.get("activeAppContext")?.value === "demo";
+	const isPublic = isAuthPage || isApiRoute || isDemoMode;
 
 	if (!isLoggedIn && !isPublic) {
 		return Response.redirect(new URL("/auth/signin", nextUrl));

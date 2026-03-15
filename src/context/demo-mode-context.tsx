@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
 
 interface DemoModeContextValue {
@@ -47,6 +48,7 @@ export function DemoModeProvider({ children }: { children: React.ReactNode }) {
 	const [hasUnsavedDemoChanges, setHasUnsavedDemoChanges] = useState(false);
 	const [noticeDismissed, setNoticeDismissed] = useState(false);
 
+	const { data: session } = useSession();
 	const utils = api.useUtils();
 
 	const enterDemoModeMutation = api.demo.enterDemoMode.useMutation();
@@ -89,8 +91,13 @@ export function DemoModeProvider({ children }: { children: React.ReactNode }) {
 		setIsDemoMode(false);
 		setHasUnsavedDemoChanges(false);
 		setOverlayExpiresAt(null);
-		window.location.reload();
-	}, [exitDemoModeMutation]);
+		// Anonymous users go to sign-in; authenticated users reload in place
+		if (!session?.user) {
+			window.location.href = "/auth/signin";
+		} else {
+			window.location.reload();
+		}
+	}, [exitDemoModeMutation, session]);
 
 	const resetDemoOverlay = useCallback(async () => {
 		const sessionKey = getCookie("demoOverlaySessionKey");
