@@ -46,6 +46,7 @@ import {
 } from "~/components/ui/table";
 import { api } from "~/trpc/react";
 import CategoryCell from "./category-editor";
+import { EditTransactionDialog } from "./edit-transaction-dialog";
 import HashtagCell from "./hashtag";
 import type { SortKey, TxClassification, TxRecord, TypeFilter } from "./types";
 import { CLASSIFICATION_LABELS, formatAmount, SORT_LABELS } from "./utils";
@@ -103,6 +104,8 @@ function TransactionsPage() {
 	const [pendingUpdates, setPendingUpdates] = useState<Set<string>>(new Set());
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [bulkPending, setBulkPending] = useState(false);
+	const [editingTx, setEditingTx] = useState<TxRecord | null>(null);
+	const ruleReturnTx = useRef<TxRecord | null>(null);
 	const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
 	const [rulePrefill, setRulePrefill] = useState<RulePrefill | null>(null);
 	const [historyRule, setHistoryRule] = useState<{
@@ -395,6 +398,50 @@ function TransactionsPage() {
 							},
 						],
 		});
+		setRuleDialogOpen(true);
+	}
+
+	function handleAddRuleForTx(tx: TxRecord) {
+		const conditions: RulePrefill["conditions"] = [];
+		if (tx.description) {
+			conditions.push({
+				field: "DESCRIPTION",
+				operator: "CONTAINS",
+				valueText: tx.description as string,
+				valueNumber: "",
+			});
+		}
+		if (tx.amount) {
+			conditions.push({
+				field: "AMOUNT",
+				operator: "EQUALS",
+				valueText: "",
+				valueNumber: String(tx.amount),
+			});
+		}
+		if (tx.account) {
+			conditions.push({
+				field: "ACCOUNT",
+				operator: "EQUALS",
+				valueText: tx.account as string,
+				valueNumber: "",
+			});
+		}
+		setRulePrefill({
+			conditions:
+				conditions.length > 0
+					? conditions
+					: [
+							{
+								field: "DESCRIPTION",
+								operator: "CONTAINS",
+								valueText: "",
+								valueNumber: "",
+							},
+						],
+		});
+		ruleReturnTx.current = tx;
+		setEditingTx(null);
 		setRuleDialogOpen(true);
 	}
 
@@ -694,7 +741,13 @@ function TransactionsPage() {
 											onMouseLeave={() => {
 												hoveredRowId.current = null;
 											}}
+											onClick={(e) => {
+												const target = e.target as HTMLElement;
+												if (target.closest('button, input, [role="combobox"], [role="option"], [role="listbox"]')) return;
+												setEditingTx(tx);
+											}}
 											className={[
+												"cursor-pointer",
 												isPending ? "opacity-50" : "",
 												isSelected ? "bg-muted/50" : "",
 											]
@@ -828,9 +881,26 @@ function TransactionsPage() {
 				</div>
 			)}
 
+			<EditTransactionDialog
+				transaction={editingTx}
+				open={!!editingTx}
+				onOpenChange={(open) => {
+					if (!open) setEditingTx(null);
+				}}
+				patchCache={patchCache}
+				allHashtags={allHashtags ?? []}
+				onAddRule={handleAddRuleForTx}
+			/>
+
 			<RuleBuilderDialog
 				open={ruleDialogOpen}
-				onOpenChange={setRuleDialogOpen}
+				onOpenChange={(open) => {
+					setRuleDialogOpen(open);
+					if (!open && ruleReturnTx.current) {
+						setEditingTx(ruleReturnTx.current);
+						ruleReturnTx.current = null;
+					}
+				}}
 				editingRule={null}
 				prefill={rulePrefill}
 				onSaved={(rule) => {

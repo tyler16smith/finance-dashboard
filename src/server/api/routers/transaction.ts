@@ -287,6 +287,24 @@ export const transactionRouter = createTRPCRouter({
 			return { success: true };
 		}),
 
+	update: protectedProcedure
+		.input(
+			z.object({
+				id: z.string(),
+				description: z.string().optional(),
+				amount: z.number().positive().optional(),
+				type: z.enum(["INCOME", "EXPENSE"]).optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const { id, ...data } = input;
+			await ctx.db.transaction.updateMany({
+				where: { id, userId: ctx.session.user.id },
+				data,
+			});
+			return { success: true };
+		}),
+
 	delete: protectedProcedure
 		.input(z.object({ id: z.string() }))
 		.mutation(async ({ ctx, input }) => {
